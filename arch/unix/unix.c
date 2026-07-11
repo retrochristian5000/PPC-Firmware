@@ -419,7 +419,8 @@ read_from_disk( int channel, int unit, int blk, unsigned long mphys, int size )
 	//		channel, unit, blk, mphys, size);
 
 	lseek(diskemu, (ducell)blk*512, SEEK_SET);
-	read(diskemu, buf, size);
+	if(read(diskemu, buf, size)==-1)
+		return -1;
 
 	return 0;
 }

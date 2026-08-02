@@ -268,7 +268,8 @@ ucell load_dictionary(const char *data, ucell len)
 	dictionary_header_t *header=(dictionary_header_t *)data;
 
 	/* assertions */
-	if (len <= (sizeof(dictionary_header_t)) || strncmp(DICTID, data, 8))
+	if (len <= sizeof(dictionary_header_t) ||
+	    memcmp(DICTID, data, sizeof(header->signature)))
 		return 0;
 #ifdef CONFIG_DEBUG_DICTIONARY
 	dump_header(header);

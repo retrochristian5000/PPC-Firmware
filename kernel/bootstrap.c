@@ -167,7 +167,6 @@ static void write_dictionary(const char *filename)
 
 	header = (dictionary_header_t *)write_data;
 	*header = (dictionary_header_t){
-		.signature	= DICTID,
 		.version	= 2,
 		.cellsize	= sizeof(ucell),
 #ifdef CONFIG_BIG_ENDIAN
@@ -182,6 +181,7 @@ static void write_dictionary(const char *filename)
                 .last           = target_ucell((ucell)((unsigned long)last
                                                        - (unsigned long)dict)),
 	};
+	memcpy(header->signature, DICTID, sizeof(header->signature));
 
 	/*
 	 * prepare dictionary data

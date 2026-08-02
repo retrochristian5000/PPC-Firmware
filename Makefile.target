@@ -5,6 +5,10 @@
 
 include config.mak
 
+# QEMU invokes sub-makes with -rR, which clears the built-in suffix list.
+# Restore the suffixes used by OpenBIOS's generated compilation rules.
+.SUFFIXES: .c .S .o .d
+
 ODIR := .
 HOSTCC := gcc
 

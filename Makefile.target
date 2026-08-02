@@ -31,6 +31,13 @@ STRIP  := $(TARGET)strip
 RANLIB := $(TARGET)ranlib
 
 CFLAGS+= -Os -g -DNATIVE_BITWIDTH_EQUALS_HOST_BITWIDTH -USWAP_ENDIANNESS
+# The 32-bit entry path does not initialize EABI/SysV small-data base
+# registers.  Bare-metal powerpc-elf compilers may otherwise address globals
+# through r2/r13, producing an ELF that QEMU loads but which faults before the
+# OpenBIOS console is installed.
+ifeq ($(ARCH),ppc)
+CFLAGS+= -mcall-sysv-noeabi -msdata=none
+endif
 CFLAGS+= -Wall -Wredundant-decls -Wshadow -Wpointer-arith
 CFLAGS+= -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-labels
 CFLAGS+= -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs

@@ -95,6 +95,21 @@ variable keyboard-phandle 0 keyboard-phandle !
   set-defaults
 ; PREPOST-initializer
 
+\ Platform reset is selected while probe-all creates the CUDA or PMU node.
+\ Save that selected action after probing, then prevent reset-all from
+\ returning to a client while QEMU is processing the pending machine reset.
+defer qemu-platform-reset-all
+
+: qemu-reset-all ( -- )
+  qemu-platform-reset-all
+  begin again
+;
+
+:noname
+  ['] reset-all behavior to qemu-platform-reset-all
+  ['] qemu-reset-all to reset-all
+; DIAG-initializer
+
 \ -------------------------------------------------------------------------
 \ Mac OF specific words
 \ -------------------------------------------------------------------------

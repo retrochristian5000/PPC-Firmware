@@ -74,7 +74,7 @@ h# 3c9 constant dac-data-addr
 defer vga-ioc!
 
 : vga-legacy-ioc!  ( val addr )
-  ioc! 
+  ioc!
 ;
 
 : vga-mmio-ioc!  ( val addr )
@@ -120,7 +120,7 @@ defer vbe-iow!
 ;
 
 : vbe-mmio-iow!  ( val addr -- )
-  1 lshift h# 500 + mmio-addr + cr .s cr le-w!
+  1 lshift h# 500 + mmio-addr + le-w!
 ;
 
 \
@@ -245,16 +245,34 @@ headerless
 
 : qemu-vga-driver-install ( -- )
   mmio-addr -1 = if
-    map-mmio vbe-init
+    map-mmio
+
+    \ BAR2 is the preferred QEMU interface.  If firmware resource
+    \ assignment did not make it available, use the legacy VGA/VBE
+    \ ports rather than calculating MMIO addresses from -1.
+    mmio-addr -1 = if
+      ['] vga-legacy-ioc! to vga-ioc!
+      ['] vbe-legacy-iow! to vbe-iow!
+    else
+      ['] vga-mmio-ioc! to vga-ioc!
+      ['] vbe-mmio-iow! to vbe-iow!
+    then
+
+    vbe-init
   then
+
   fb-addr -1 = if
-    map-fb fb-addr to frame-buffer-adr
-    default-font set-font
+    map-fb
+    fb-addr -1 <> if
+      fb-addr to frame-buffer-adr
+      default-font set-font
 
-    frame-buffer-adr encode-int " address" property
+      frame-buffer-adr encode-int " address" property
 
-    openbios-video-width openbios-video-height over char-width / over char-height /
-    fb8-install
+      openbios-video-width openbios-video-height
+      over char-width / over char-height /
+      fb8-install
+    then
   then
 ;
 

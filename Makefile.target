@@ -60,14 +60,14 @@ else
 CFLAGS += -Os
 endif
 
-CFLAGS+= -g -DNATIVE_BITWIDTH_EQUALS_HOST_BITWIDTH -USWAP_ENDIANNESS
-CFLAGS+= -Wall -Wredundant-decls -Wshadow -Wpointer-arith
-CFLAGS+= -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-labels
-CFLAGS+= -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs
-CFLAGS+= -Wbuiltin-declaration-mismatch -Wimplicit-fallthrough -Woverride-init -Wno-maybe-uninitialized
-CFLAGS+= -Werror
+override CFLAGS += -g -DNATIVE_BITWIDTH_EQUALS_HOST_BITWIDTH -USWAP_ENDIANNESS
+override CFLAGS += -Wall -Wredundant-decls -Wshadow -Wpointer-arith
+override CFLAGS += -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-labels
+override CFLAGS += -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs
+override CFLAGS += -Wbuiltin-declaration-mismatch -Wimplicit-fallthrough -Woverride-init -Wno-maybe-uninitialized
+override CFLAGS += -Werror
 # Flags for dependency generation
-CFLAGS+= -MMD -MP -MT $@ -MF '$(*D)/$(*F).d'
+override CFLAGS += -MMD -MP -MT $@ -MF '$(*D)/$(*F).d'
 INCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel/include -I$(ODIR)/target/include
 AS_FLAGS+= -g
 

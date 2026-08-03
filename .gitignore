@@ -1,3 +1,39 @@
-obj-*
-.stgit-*
+# OpenBIOS configured build trees
+obj-*/
 config-host.mak
+
+# Compiler and linker intermediates
+*.o
+*.a
+*.d
+*.dep
+*.lo
+*.la
+*.nostrip
+*.map
+*.syms
+
+# Generated OpenBIOS images, dictionaries, and FCode
+openbios-*.elf
+openbios-*.dict
+openbios-*.iso
+openbios-*.bin
+QEMU,VGA.bin
+QEMU,tcx.bin
+QEMU,cgthree.bin
+forthstrap
+
+# Build logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Optional tooling output
+.cache/
+compile_commands.json
+
+# Patch-stack metadata
+.stgit-*

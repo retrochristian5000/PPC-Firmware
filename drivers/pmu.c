@@ -54,8 +54,8 @@
 #define ANH             (15*RS)         /* A-side data, no handshake */
 
 /* Bits in B data register: all active low */
-#define TACK		0x08		/* Transfer request (input) */
-#define TREQ		0x10		/* Transfer acknowledge (output) */
+#define TACK		0x08		/* Transfer acknowledge (input) */
+#define TREQ		0x10		/* Transfer request (output) */
 
 /* Bits in ACR */
 #define SR_CTRL         0x1c            /* Shift register control bits */
@@ -150,7 +150,7 @@ static const int8_t pmu_data_len[256][2] = {
 #define PMU_POW_OFF                0x00  /* leave bit 7 to 0 to power it OFF */
 #define PMU_POW_BACKLIGHT          0x01  /* backlight power */
 #define PMU_POW_CHARGER            0x02  /* battery charger power */
-#define PMU_POW_IRLED              0x04  /* IR led power (on wallstreet) */
+#define PMU_POW_IRLED              0x04  /* IR led (on wallstreet) */
 #define PMU_POW_MEDIABAY           0x08  /* media bay power (wallstreet/lombard ?) */
 
 /* Bits in PMU interrupt and interrupt mask bytes */
@@ -204,14 +204,36 @@ enum {
 
 static uint8_t pmu_readb(pmu_t *dev, int reg)
 {
-    return *(volatile uint8_t *)(dev->base + reg);
+    uint8_t value = *(volatile uint8_t *)(dev->base + reg);
+
     asm volatile("eieio" : : : "memory");
+    return value;
 }
 
 static void pmu_writeb(pmu_t *dev, int reg, uint8_t val)
 {
     *(volatile uint8_t *)(dev->base + reg) = val;
     asm volatile("eieio" : : : "memory");
+}
+
+static void pmu_init_transfer_lines(pmu_t *dev)
+{
+    uint8_t portb;
+    uint8_t dirb;
+
+    /*
+     * Both handshake signals are active low. Program the TREQ output latch
+     * high before enabling it as an output, and leave TACK under PMU control
+     * as an input. This mirrors the Core99/Linux via-pmu initialization and
+     * avoids depending on the firmware-entry state supplied by the machine.
+     */
+    portb = pmu_readb(dev, B);
+    pmu_writeb(dev, B, portb | TREQ);
+
+    dirb = pmu_readb(dev, DIRB);
+    dirb |= TREQ;
+    dirb &= ~TACK;
+    pmu_writeb(dev, DIRB, dirb);
 }
 
 static void pmu_handshake(pmu_t *dev)
@@ -493,7 +515,7 @@ static  void rtc_set_time(int *idx)
 
 NODE_METHODS(rtc) = {
     { "open",      rtc_open },
-    { "close",      rtc_close },
+    { "close",     rtc_close },
     { "get-time",  rtc_get_time },
     { "set-time",  rtc_set_time },
 };
@@ -657,6 +679,7 @@ pmu_t *pmu_init(const char *path, phys_addr_t base)
     snprintf(buf, sizeof(buf), "%s/via-pmu", path);
     set_property(aliases, "via-pmu", buf, strlen(buf) + 1);
     pmu->base = base;
+    pmu_init_transfer_lines(pmu);
 
 #ifdef CONFIG_DRIVER_ADB
     if (has_adb()) {

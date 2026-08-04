@@ -18,8 +18,6 @@ HOSTCFLAGS+= -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-labels
 HOSTCFLAGS+= -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs
 HOSTCFLAGS+= -Wbuiltin-declaration-mismatch -Wimplicit-fallthrough -Woverride-init -Wno-maybe-uninitialized
 HOSTCFLAGS+= -W
-# Flags for dependency generation
-HOSTCFLAGS+= -MMD -MP -MT $@ -MF '$(*D)/$(*F).d'
 HOSTINCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel -I$(SRCDIR)/kernel/include -iquote $(ODIR)/target/include
 
 CC     := $(TARGET)gcc
@@ -66,10 +64,13 @@ override CFLAGS += -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-la
 override CFLAGS += -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs
 override CFLAGS += -Wbuiltin-declaration-mismatch -Wimplicit-fallthrough -Woverride-init -Wno-maybe-uninitialized
 override CFLAGS += -Werror
-# Flags for dependency generation
-override CFLAGS += -MMD -MP -MT $@ -MF '$(*D)/$(*F).d'
 INCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel/include -I$(ODIR)/target/include
 AS_FLAGS+= -g
+
+# Dependency options are compile-rule state, not global compiler policy.
+# Keep this recursively expanded so automatic variables are resolved for the
+# current object target rather than while Makefile.target is parsed.
+DEPFLAGS = -MMD -MP -MT $@ -MF '$(@:.o=.d)'
 
 # FCode tokeniser
 TOKE   := toke

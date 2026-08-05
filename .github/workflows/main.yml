@@ -18,10 +18,10 @@ jobs:
       - name: Checkout OpenBIOS
         uses: actions/checkout@v7
 
-      - name: Install compiler-parity dependencies
+      - name: Install Clang
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends clang git
+          apt-get install -y --no-install-recommends clang
 
       - name: Configure isolated PPC builds
         run: |
@@ -66,14 +66,16 @@ jobs:
             fi
           done
 
-      - name: Fetch pinned FCode utilities
-        run: |
-          git clone --filter=blob:none --no-checkout \
-            https://github.com/openbios/fcode-utils.git fcode-gcc
-          git -C fcode-gcc fetch --depth=1 origin \
-            6e563ee54aa9f60e538d90eedaa012ae77610344
-          git -C fcode-gcc checkout --detach --force FETCH_HEAD
-          cp -a fcode-gcc fcode-clang
+      - name: Checkout pinned FCode utilities
+        uses: actions/checkout@v7
+        with:
+          repository: openbios/fcode-utils
+          ref: 6e563ee54aa9f60e538d90eedaa012ae77610344
+          path: fcode-gcc
+          persist-credentials: false
+
+      - name: Prepare second FCode utility build
+        run: cp -a fcode-gcc fcode-clang
 
       - name: Build toke with GCC and Clang
         run: |

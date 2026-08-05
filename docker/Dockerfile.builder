@@ -1,6 +1,6 @@
 FROM debian:12.5@sha256:a92ed51e0996d8e9de041ca05ce623d2c491444df6a535a566dabd5cb8336946
 
-ARG FCODE_UTILS_COMMIT=30787afaf91005ceff69487059043cd676228ea9
+ARG FCODE_UTILS_COMMIT=6478df0f5b8bb6bf3f8654482cc2aa84264e3805
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -16,6 +16,6 @@ RUN apt-get update && \
         /tmp/fcode-utils/toke/tokzesc.c && \
     grep -q 'tic_param_t dummy_param = { 0 };' \
         /tmp/fcode-utils/toke/tokzesc.c && \
-    make -C /tmp/fcode-utils CC=gcc STRIP=true && \
+    make -C /tmp/fcode-utils HOSTCC=gcc HOSTSTRIP=true && \
     make -C /tmp/fcode-utils DESTDIR=/usr install && \
     rm -rf /tmp/fcode-utils /var/lib/apt/lists/*

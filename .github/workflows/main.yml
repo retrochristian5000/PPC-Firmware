@@ -18,10 +18,10 @@ jobs:
       - name: Checkout OpenBIOS
         uses: actions/checkout@v7
 
-      - name: Install Clang
+      - name: Install compiler-parity dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends clang
+          apt-get install -y --no-install-recommends clang git
 
       - name: Configure isolated PPC builds
         run: |

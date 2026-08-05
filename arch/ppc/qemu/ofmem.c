@@ -561,6 +561,17 @@ setup_mmu(unsigned long ramsize)
 
     patch_rfi();
 
+    /*
+     * The linked firmware, including its mutable Forth dictionary, initially
+     * executes from the physical PROM window.  Once translation is enabled,
+     * the same virtual addresses must resolve to the writable copy at the top
+     * of RAM.  Preinstall every firmware PTE so the first post-MMU dictionary
+     * store cannot fall through to QEMU's read-only PROM region.
+     */
+    for (i = 0; i < OF_CODE_SIZE; i += PAGE_SIZE) {
+        hash_page(OF_CODE_START + i, get_rom_base() + i, 0x02);
+    }
+
     /* Enable MMU */
 
     mtmsr(mfmsr() | MSR_IR | MSR_DR);

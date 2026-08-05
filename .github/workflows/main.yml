@@ -72,7 +72,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: retrochristian5000/fcode-utils
-          ref: 5aa52aa786f853583e3e1032fd1aac58fa8fc458
+          ref: 30787afaf91005ceff69487059043cd676228ea9
           path: fcode-gcc
           persist-credentials: false
 

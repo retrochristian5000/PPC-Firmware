@@ -9,6 +9,63 @@ on:
       - "!v*"
 
 jobs:
+  bootstrap-compiler-parity:
+    runs-on: ubuntu-latest
+    name: Compare GCC and Clang forthstrap output
+    container:
+      image: ghcr.io/openbios/openbios-builder:master
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Install Clang
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends clang
+
+      - name: Configure isolated PPC builds
+        run: |
+          mkdir parity-gcc parity-clang
+          (cd parity-gcc && ../config/scripts/switch-arch qemu-ppc)
+          (cd parity-clang && ../config/scripts/switch-arch qemu-ppc)
+
+          for tree in parity-gcc parity-clang; do
+            cat > "$tree/obj-ppc/forth/version.fs" <<'EOF'
+          : builddate " compiler-parity" ;
+          : version " compiler-parity" ;
+          EOF
+            cat > "$tree/obj-ppc/target/include/openbios-version.h" <<'EOF'
+          #define OPENBIOS_BUILD_DATE "compiler-parity"
+          #define OPENBIOS_VERSION_STR "compiler-parity"
+          EOF
+          done
+
+      - name: Build dictionaries with GCC
+        run: make -C parity-gcc/obj-ppc V=1 HOSTCC=gcc dictionaries
+
+      - name: Build dictionaries with Clang
+        run: make -C parity-clang/obj-ppc V=1 HOSTCC=clang dictionaries
+
+      - name: Verify forthstrap output parity
+        run: |
+          set -eu
+          gcc --version | head -1
+          clang --version | head -1
+          for dictionary in bootstrap.dict openbios-qemu.dict; do
+            sha256sum \
+              "parity-gcc/obj-ppc/$dictionary" \
+              "parity-clang/obj-ppc/$dictionary"
+            if ! cmp -s \
+                "parity-gcc/obj-ppc/$dictionary" \
+                "parity-clang/obj-ppc/$dictionary"; then
+              echo "error: GCC and Clang produced different $dictionary" >&2
+              cmp -l \
+                "parity-gcc/obj-ppc/$dictionary" \
+                "parity-clang/obj-ppc/$dictionary" | head -20 >&2 || true
+              exit 1
+            fi
+          done
+
   build:
     runs-on: ubuntu-latest
     name: OpenBIOS build for amd64 ppc sparc32 sparc64 x86

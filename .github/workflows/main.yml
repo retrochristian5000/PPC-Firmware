@@ -68,11 +68,11 @@ jobs:
             fi
           done
 
-      - name: Checkout pinned FCode utilities
+      - name: Checkout pinned project FCode utilities
         uses: actions/checkout@v7
         with:
-          repository: openbios/fcode-utils
-          ref: 6e563ee54aa9f60e538d90eedaa012ae77610344
+          repository: retrochristian5000/fcode-utils
+          ref: 5aa52aa786f853583e3e1032fd1aac58fa8fc458
           path: fcode-gcc
           persist-credentials: false
 

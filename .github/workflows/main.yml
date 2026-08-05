@@ -2,7 +2,6 @@ name: Build OpenBIOS
 
 on:
   push:
-    # Build for non-release tags only
     branches:
       - "*"
     tags:
@@ -13,7 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     name: Compare GCC and Clang bootstrap outputs
     container:
-      image: ghcr.io/openbios/openbios-builder:master
+      image: ghcr.io/retrochristian5000/ppc-firmware-builder:master
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout OpenBIOS
         uses: actions/checkout@v7
@@ -74,7 +76,7 @@ jobs:
           path: fcode-gcc
           persist-credentials: false
 
-      - name: Prepare corrected FCode utility builds
+      - name: Prepare compiler-parity source copies
         run: |
           cp -a fcode-gcc fcode-clang
           for source in fcode-gcc/toke/tokzesc.c fcode-clang/toke/tokzesc.c; do
@@ -103,7 +105,10 @@ jobs:
     runs-on: ubuntu-latest
     name: OpenBIOS build for amd64 ppc sparc32 sparc64 x86
     container:
-      image: ghcr.io/openbios/openbios-builder:master
+      image: ghcr.io/retrochristian5000/ppc-firmware-builder:master
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout OpenBIOS
         uses: actions/checkout@v7
@@ -113,14 +118,14 @@ jobs:
 
       - name: Configure debug
         run: |
-          cat Makefile.target.orig | sed 's#CFLAGS+= -Os#CFLAGS+= -O0#g' > Makefile.target
+          sed 's#CFLAGS+= -Os#CFLAGS+= -O0#g' Makefile.target.orig > Makefile.target
           ./config/scripts/switch-arch amd64 ppc sparc32 sparc64 x86
 
       - name: Build debug
-        run: "make V=1"
+        run: make V=1
 
       - name: Move debug build
-        run: "mkdir -p debug && mv obj-* debug"
+        run: mkdir -p debug && mv obj-* debug
 
       - name: Configure release
         run: |
@@ -128,10 +133,10 @@ jobs:
           ./config/scripts/switch-arch amd64 ppc sparc32 sparc64 x86
 
       - name: Build release
-        run: "make V=1"
+        run: make V=1
 
       - name: Move release build
-        run: "mkdir -p release && mv obj-* release"
+        run: mkdir -p release && mv obj-* release
 
       - name: Store artifacts
         uses: actions/upload-artifact@v7
@@ -180,14 +185,14 @@ jobs:
           path: archive
 
       - name: Archive pre-release
-        run: cd archive && zip -r ../openbios-multiarch-latest.zip debug release && cd ..
+        run: cd archive && zip -r ../openbios-multiarch-latest.zip debug release
 
       - name: Upload pre-release (upstream repository only)
-        if: "${{ github.repository_owner == 'openbios' }}"
-        uses: "crowbarmaster/GH-Automatic-Releases@latest"
+        if: ${{ github.repository_owner == 'openbios' }}
+        uses: crowbarmaster/GH-Automatic-Releases@latest
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: true
-          automatic_release_tag: "latest"
-          title: "Development Build"
+          automatic_release_tag: latest
+          title: Development Build
           files: openbios-multiarch-latest.zip

@@ -1,6 +1,6 @@
 FROM debian:12.5@sha256:a92ed51e0996d8e9de041ca05ce623d2c491444df6a535a566dabd5cb8336946
 
-ARG FCODE_UTILS_COMMIT=5aa52aa786f853583e3e1032fd1aac58fa8fc458
+ARG FCODE_UTILS_COMMIT=30787afaf91005ceff69487059043cd676228ea9
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

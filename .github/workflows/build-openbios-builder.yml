@@ -1,12 +1,17 @@
 name: Build openbios-builder container
 
 on:
-  # Run manually from Actions tab
+  push:
+    branches:
+      - master
+    paths:
+      - docker/Dockerfile.builder
+      - .github/workflows/build-openbios-builder.yml
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-builder
+  IMAGE_NAME: retrochristian5000/ppc-firmware-builder
 
 jobs:
   build-x86_64:
@@ -31,6 +36,9 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=master
+            type=sha
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7

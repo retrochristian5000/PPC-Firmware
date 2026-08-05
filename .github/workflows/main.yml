@@ -11,7 +11,7 @@ on:
 jobs:
   bootstrap-compiler-parity:
     runs-on: ubuntu-latest
-    name: Compare GCC and Clang forthstrap output
+    name: Compare GCC and Clang bootstrap outputs
     container:
       image: ghcr.io/openbios/openbios-builder:master
     steps:
@@ -65,6 +65,32 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Fetch pinned FCode utilities
+        run: |
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/openbios/fcode-utils.git fcode-gcc
+          git -C fcode-gcc fetch --depth=1 origin \
+            6e563ee54aa9f60e538d90eedaa012ae77610344
+          git -C fcode-gcc checkout --detach --force FETCH_HEAD
+          cp -a fcode-gcc fcode-clang
+
+      - name: Build toke with GCC and Clang
+        run: |
+          make -C fcode-gcc/toke CC=gcc STRIP=true
+          make -C fcode-clang/toke CC=clang STRIP=true
+
+      - name: Verify toke output parity
+        run: |
+          set -eu
+          fcode-gcc/toke/toke -o QEMU,VGA.gcc.bin drivers/vga.fs
+          fcode-clang/toke/toke -o QEMU,VGA.clang.bin drivers/vga.fs
+          sha256sum QEMU,VGA.gcc.bin QEMU,VGA.clang.bin
+          if ! cmp -s QEMU,VGA.gcc.bin QEMU,VGA.clang.bin; then
+            echo "error: GCC and Clang toke builds produced different FCode" >&2
+            cmp -l QEMU,VGA.gcc.bin QEMU,VGA.clang.bin | head -20 >&2 || true
+            exit 1
+          fi
 
   build:
     runs-on: ubuntu-latest

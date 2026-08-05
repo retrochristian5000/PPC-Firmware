@@ -74,8 +74,13 @@ jobs:
           path: fcode-gcc
           persist-credentials: false
 
-      - name: Prepare second FCode utility build
-        run: cp -a fcode-gcc fcode-clang
+      - name: Prepare corrected FCode utility builds
+        run: |
+          cp -a fcode-gcc fcode-clang
+          for source in fcode-gcc/toke/tokzesc.c fcode-clang/toke/tokzesc.c; do
+            sed -i 's/tic_param_t dummy_param;/tic_param_t dummy_param = { 0 };/' "$source"
+            grep -q 'tic_param_t dummy_param = { 0 };' "$source"
+          done
 
       - name: Build toke with GCC and Clang
         run: |

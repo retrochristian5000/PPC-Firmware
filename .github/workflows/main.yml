@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Compare GCC and Clang bootstrap outputs
     container:
-      image: ghcr.io/retrochristian5000/ppc-firmware-builder:sha-ab8877c
+      image: ghcr.io/retrochristian5000/ppc-firmware-builder:sha-d75c8c5
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -72,7 +72,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: retrochristian5000/fcode-utils
-          ref: 30787afaf91005ceff69487059043cd676228ea9
+          ref: 6478df0f5b8bb6bf3f8654482cc2aa84264e3805
           path: fcode-gcc
           persist-credentials: false
 
@@ -86,8 +86,8 @@ jobs:
 
       - name: Build toke with GCC and Clang
         run: |
-          make -C fcode-gcc/toke CC=gcc STRIP=true
-          make -C fcode-clang/toke CC=clang STRIP=true
+          make -C fcode-gcc/toke HOSTCC=gcc HOSTSTRIP=true
+          make -C fcode-clang/toke HOSTCC=clang HOSTSTRIP=true
 
       - name: Verify toke output parity
         run: |
@@ -105,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     name: OpenBIOS build for amd64 ppc sparc32 sparc64 x86
     container:
-      image: ghcr.io/retrochristian5000/ppc-firmware-builder:sha-ab8877c
+      image: ghcr.io/retrochristian5000/ppc-firmware-builder:sha-d75c8c5
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}

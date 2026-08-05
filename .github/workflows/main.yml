@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Compare GCC and Clang bootstrap outputs
     container:
-      image: ghcr.io/retrochristian5000/ppc-firmware-builder:master
+      image: ghcr.io/retrochristian5000/ppc-firmware-builder:sha-ab8877c
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -105,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     name: OpenBIOS build for amd64 ppc sparc32 sparc64 x86
     container:
-      image: ghcr.io/retrochristian5000/ppc-firmware-builder:master
+      image: ghcr.io/retrochristian5000/ppc-firmware-builder:sha-ab8877c
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}

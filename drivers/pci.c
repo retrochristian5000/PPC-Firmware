@@ -60,6 +60,9 @@ const pci_arch_t *arch;
 #define IS_PREFETCHABLE		0x40000000
 #define IS_ALIASED		0x20000000
 
+#define OB_PCI_IO_BASE_PROP "openbios,pci-io-base"
+#define OB_PCI_MEM_BASE_PROP "openbios,pci-mem-base"
+
 static int encode_int32_cells(int num_cells, u32 *prop, ucell val)
 {
     int i = 0;
@@ -149,6 +152,25 @@ static unsigned long pci_bus_addr_to_host_addr(int space, uint32_t ba)
         /* Return unaltered to aid debugging property values */
         return (unsigned long)ba;
     }
+}
+
+static unsigned long pci_bus_addr_to_host_addr_for_node(phandle_t host,
+                                                         int space,
+                                                         uint32_t ba)
+{
+#if defined(CONFIG_PPC)
+    if (host) {
+        if (space == IO_SPACE) {
+            return get_int_property(host, OB_PCI_IO_BASE_PROP, NULL) +
+                   (unsigned long)ba;
+        } else if (space == MEMORY_SPACE_32) {
+            return get_int_property(host, OB_PCI_MEM_BASE_PROP, NULL) +
+                   (unsigned long)ba;
+        }
+    }
+#endif
+
+    return pci_bus_addr_to_host_addr(space, ba);
 }
 
 static inline void pci_decode_pci_addr(pci_addr addr, int *flags,
@@ -366,7 +388,8 @@ ob_pci_encode_unit(int *idx)
 /* Map PCI MMIO or IO space from the BAR address. Note it is up to the caller
    to understand whether the resulting address is in MEM or IO space and
    use the appropriate accesses */
-static ucell ob_pci_map(uint32_t ba, ucell size) {
+static ucell ob_pci_map_for_node(phandle_t host, uint32_t ba, ucell size)
+{
 	phys_addr_t phys;
 	uint32_t mask;
 	int flags, space_code;
@@ -374,7 +397,7 @@ static ucell ob_pci_map(uint32_t ba, ucell size) {
 	
 	pci_decode_pci_addr(ba, &flags, &space_code, &mask);
 
-	phys = pci_bus_addr_to_host_addr(space_code,
+	phys = pci_bus_addr_to_host_addr_for_node(host, space_code,
 			ba & ~mask);
 	
 #if defined(CONFIG_OFMEM)
@@ -397,6 +420,11 @@ static ucell ob_pci_map(uint32_t ba, ucell size) {
 	return virt;
 }
 
+static ucell ob_pci_map(uint32_t ba, ucell size)
+{
+    return ob_pci_map_for_node(0, ba, size);
+}
+
 static void ob_pci_unmap(ucell virt, ucell size) {
 #if defined(CONFIG_OFMEM)
 	ofmem_unmap(virt, size); 
@@ -411,6 +439,7 @@ ob_pci_bus_map_in(int *idx)
 	uint32_t ba;
 	ucell size;
 	ucell virt;
+        phandle_t host;
 
 	PCI_DPRINTF("ob_pci_bar_map_in idx=%p\n", idx);
 
@@ -419,7 +448,8 @@ ob_pci_bus_map_in(int *idx)
 	POP();
 	ba = POP();
 
-	virt = ob_pci_map(ba, size);
+        host = ih_to_phandle(my_self());
+	virt = ob_pci_map_for_node(host, ba, size);
 
 	PUSH(virt);
 }
@@ -532,6 +562,12 @@ static void pci_host_set_reg(phandle_t phandle, pci_config_t *config)
             arch->cfg_len);
 
     set_property(dev, "reg", (char *)props, ncells * sizeof(props[0]));
+
+#if defined(CONFIG_PPC)
+    /* Retain this host's translation context for later pci-map-in calls. */
+    set_int_property(dev, OB_PCI_IO_BASE_PROP, arch->io_base);
+    set_int_property(dev, OB_PCI_MEM_BASE_PROP, arch->host_pci_base);
+#endif
 
     ob_pci_reload_device_path(dev, config);
 
@@ -953,7 +989,7 @@ static void pci_set_ranges(const pci_config_t *config)
 	phandle_t dev = get_cur_dev();
 	u32 props[32];
 	int ncells;
-  	int i;
+ 	int i;
 	uint32_t mask;
 	int flags;
 	int space_code;
@@ -978,7 +1014,7 @@ static void pci_set_ranges(const pci_config_t *config)
 		/* size */
 
 		props[ncells++] = config->sizes[i];
-  	}
+ 	}
 	set_property(dev, "ranges", (char *)props, ncells * sizeof(props[0]));
 }
 
@@ -1854,6 +1890,10 @@ static phandle_t ob_configure_pci_device(const char* parent_path,
         pci_set_reg(phandle, &config, num_bars);
     } else {
         pci_host_set_reg(phandle, &config);
+        /* Every host bridge needs ranges, even if it has no database callback. */
+        if (!get_property(phandle, "ranges", NULL)) {
+            pci_host_set_ranges(&config);
+        }
     }
 
     /* call device-specific configuration callback */
@@ -1890,24 +1930,40 @@ static void ob_pci_set_available(phandle_t host, unsigned long mem_base, unsigne
 {
     /* Create an available property for both memory and IO space */
     uint32_t props[10];
+    unsigned long mem_limit, mem_available, io_available;
     int ncells;
+
+    mem_limit = arch->pci_mem_base + arch->mem_len;
+    mem_available = mem_base < mem_limit ? mem_limit - mem_base : 0;
+    io_available = io_base < arch->io_len ? arch->io_len - io_base : 0;
 
     ncells = 0;
     ncells += pci_encode_phys_addr(props + ncells, 0, MEMORY_SPACE_32, 0, 0, mem_base);
-    ncells += pci_encode_size(props + ncells, arch->mem_len - mem_base);
+    ncells += pci_encode_size(props + ncells, mem_available);
     ncells += pci_encode_phys_addr(props + ncells, 0, IO_SPACE, 0, 0, io_base);
-    ncells += pci_encode_size(props + ncells, arch->io_len - io_base);
+    ncells += pci_encode_size(props + ncells, io_available);
 
     set_property(host, "available", (char *)props, ncells * sizeof(props[0]));
 }
 
 #if defined(CONFIG_PPC)
+static void ob_pci_set_interrupt_parent_if_present(const char *path,
+                                                    phandle_t intc)
+{
+    phandle_t target = find_dev(path);
+
+    if (target) {
+        set_int_property(target, "interrupt-parent", intc);
+    }
+}
+
 static phandle_t ob_pci_host_set_interrupt_map(phandle_t host)
 {
     /* Set the host bridge interrupt map, returning the phandle
        of the interrupt controller */
-    phandle_t dnode, target_node;
-    char *path, buf[256];
+    phandle_t dnode, macio;
+    char *path;
+    char buf[256];
 
     /* Oldworld macs do interrupt maps differently */
     if (is_oldworld()) {
@@ -1916,72 +1972,55 @@ static phandle_t ob_pci_host_set_interrupt_map(phandle_t host)
 
     PCI_DPRINTF("setting up interrupt map for host %x\n", host);
     dnode = dt_iterate_type(0, "open-pic");
-    path = get_path_from_ph(host);
-    if (dnode && path) {
-        /* patch in openpic interrupt-parent properties */
-        snprintf(buf, sizeof(buf), "%s/mac-io", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/escc/ch-a", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/escc/ch-b", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/escc-legacy/ch-a", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/escc-legacy/ch-b", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        /* QEMU only emulates 2 of the 3 ata buses currently */
-        /* On a new world Mac these are not numbered but named by the
-         * ATA version they support. Thus we have: ata-3, ata-3, ata-4
-         * On g3beige they all called just ide.
-         * We take 2 x ata-3 buses which seems to work for
-         * at least the clients we care about */
-        snprintf(buf, sizeof(buf), "%s/mac-io/ata-3@20000", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/ata-3@21000", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/via-cuda", path);
-        target_node = find_dev(buf);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/via-pmu", path);
-        target_node = find_dev(buf);
-        if (target_node) {
-            set_int_property(target_node, "interrupt-parent", dnode);
-        }
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/gpio/extint-gpio1", path);
-        target_node = find_dev(buf);
-        if (target_node) {
-            set_int_property(target_node, "interrupt-parent", dnode);
-        }
-
-        snprintf(buf, sizeof(buf), "%s/mac-io/gpio/programmer-switch", path);
-        target_node = find_dev(buf);
-        if (target_node) {
-            set_int_property(target_node, "interrupt-parent", dnode);
-        }
-
-        target_node = find_dev(path);
-        set_int_property(target_node, "interrupt-parent", dnode);
-
-        return dnode;
+    if (!dnode) {
+        return 0;
     }
 
-    return host;
+    if (is_apple()) {
+        /* MacIO may be behind a PCI-to-PCI bridge; find its real path. */
+        macio = dt_iterate_type(0, "mac-io");
+        if (macio) {
+            set_int_property(macio, "interrupt-parent", dnode);
+            path = get_path_from_ph(macio);
+            if (path) {
+                snprintf(buf, sizeof(buf), "%s/escc/ch-a", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/escc/ch-b", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/escc-legacy/ch-a", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/escc-legacy/ch-b", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                /* QEMU only emulates 2 of the 3 ata buses currently. */
+                snprintf(buf, sizeof(buf), "%s/ata-3@20000", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/ata-3@21000", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/via-cuda", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/via-pmu", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/gpio/extint-gpio1", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                snprintf(buf, sizeof(buf), "%s/gpio/programmer-switch", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
+                free(path);
+            }
+        }
+    }
+
+    set_int_property(host, "interrupt-parent", dnode);
+    return dnode;
 }
 
 static void ob_pci_host_bus_interrupt(ucell dnode, u32 *props, int *ncells, u32 addr, u32 intno)
@@ -2082,16 +2121,14 @@ static void ob_pci_bus_set_interrupt_map(phandle_t pcibus, phandle_t dnode,
 
 int ob_pci_init(void)
 {
-    int bus, devnum, fn;
+    int bus, devnum, fn, vid, did;
     uint8_t class, subclass;
     unsigned long mem_base, io_base;
 
     pci_config_t config = {}; /* host bridge */
     phandle_t phandle_host = 0, intc;
 
-    PCI_DPRINTF("Initializing PCI host bridge...\n");
-
-    /* Find all PCI bridges */
+    PCI_DPRINTF("Initializing PCI host bridge %s...\n", arch->name);
 
     mem_base = arch->pci_mem_base;
     /* I/O ports under 0x400 are used by devices mapped at fixed
@@ -2105,25 +2142,31 @@ int ob_pci_init(void)
         fn = 0;
 
         if (!ob_pci_read_identification(bus, devnum, fn,
-                                        0, 0, &class, &subclass)) {
+                                        &vid, &did, &class, &subclass)) {
             continue;
         }
 
-        if (class != PCI_BASE_CLASS_BRIDGE || subclass != PCI_SUBCLASS_BRIDGE_HOST) {
+        if (class != PCI_BASE_CLASS_BRIDGE ||
+            subclass != PCI_SUBCLASS_BRIDGE_HOST) {
+            continue;
+        }
+
+        /* A pci_arch_t describes one specific host/configuration domain. */
+        if (vid != arch->vendor_id || did != arch->device_id) {
             continue;
         }
 
         /* create root node for host PCI bridge */
-
-        /* configure  */
         strncpy(config.path, "", sizeof(config.path));
 
-        phandle_host = ob_configure_pci_device(config.path, &bus, &mem_base, &io_base,
-                bus, devnum, fn, 0);
-
-        /* we expect single host PCI bridge
-           but this may be machine-specific */
+        phandle_host = ob_configure_pci_device(config.path, &bus,
+                &mem_base, &io_base, bus, devnum, fn, 0);
         break;
+    }
+
+    if (!phandle_host) {
+        PCI_DPRINTF("No matching PCI host bridge for %s\n", arch->name);
+        return -1;
     }
 
     /* create available attributes for the PCI bridge */

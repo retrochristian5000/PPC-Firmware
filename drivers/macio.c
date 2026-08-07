@@ -229,13 +229,13 @@ dump_nvram(void)
   for (i = 0; i < 10; i++)
     {
       for (j = 0; j < 16; j++)
-	printk ("%02x ", nvram[(i*16+j)<<4]);
+      printk ("%02x ", nvram[(i*16+j)<<4]);
       printk (" ");
       for (j = 0; j < 16; j++)
-	if (isprint(nvram[(i*16+j)<<4]))
-	    printk("%c", nvram[(i*16+j)<<4]);
-	else
-	  printk(".");
+        if (isprint(nvram[(i*16+j)<<4]))
+            printk("%c", nvram[(i*16+j)<<4]);
+        else
+          printk(".");
       printk ("\n");
       }
 }

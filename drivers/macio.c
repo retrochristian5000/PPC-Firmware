@@ -34,6 +34,89 @@
 
 static char *nvram;
 
+/*
+ * NewWorld UniNorth machines expose three independent PCI configuration
+ * domains.  The main domain is described by arch/ppc/qemu/init.c and is
+ * scanned before ob_unin_init().  Keep the other two domains here so the
+ * firmware can enumerate whatever devices QEMU places on them rather than
+ * assuming that all PCI devices live behind the main host bridge.
+ */
+static const pci_arch_t uninorth_agp_arch = {
+    .name = "MAC99-AGP",
+    .vendor_id = PCI_VENDOR_ID_APPLE,
+    .device_id = PCI_DEVICE_ID_APPLE_UNI_N_AGP,
+    .cfg_addr = 0xf0800000,
+    .cfg_data = 0xf0c00000,
+    .cfg_base = 0xf0000000,
+    .cfg_len = 0x02000000,
+    .host_pci_base = 0x0,
+    .pci_mem_base = 0x90000000,
+    .mem_len = 0x10000000,
+    .io_base = 0xf0000000,
+    .io_len = 0x00800000,
+    .host_ranges = {
+        { .type = IO_SPACE, .parentaddr = 0x0,
+          .childaddr = 0xf0000000, .len = 0x00800000 },
+        { .type = MEMORY_SPACE_32, .parentaddr = 0x90000000,
+          .childaddr = 0x90000000, .len = 0x10000000 },
+        { .type = MEMORY_SPACE_32, .parentaddr = 0xf1000000,
+          .childaddr = 0xf1000000, .len = 0x01000000 },
+        { .type = 0, .parentaddr = 0, .childaddr = 0, .len = 0 }
+    },
+    .irqs = { 0x1b, 0x1c, 0x1d, 0x1e }
+};
+
+static const pci_arch_t uninorth_internal_arch = {
+    .name = "MAC99-INTERNAL",
+    .vendor_id = PCI_VENDOR_ID_APPLE,
+    .device_id = PCI_DEVICE_ID_APPLE_UNI_N_I_PCI,
+    .cfg_addr = 0xf4800000,
+    .cfg_data = 0xf4c00000,
+    .cfg_base = 0xf4000000,
+    .cfg_len = 0x02000000,
+    .host_pci_base = 0x0,
+    .pci_mem_base = 0xf5000000,
+    .mem_len = 0x01000000,
+    .io_base = 0xf4000000,
+    .io_len = 0x00800000,
+    .host_ranges = {
+        { .type = IO_SPACE, .parentaddr = 0x0,
+          .childaddr = 0xf4000000, .len = 0x00800000 },
+        { .type = MEMORY_SPACE_32, .parentaddr = 0xf5000000,
+          .childaddr = 0xf5000000, .len = 0x01000000 },
+        { .type = 0, .parentaddr = 0, .childaddr = 0, .len = 0 }
+    },
+    .irqs = { 0x1b, 0x1c, 0x1d, 0x1e }
+};
+
+static void ob_unin_scan_extra_pci_roots(void)
+{
+    const pci_arch_t *saved_arch = arch;
+    const pci_arch_t *roots[] = {
+        &uninorth_agp_arch,
+        &uninorth_internal_arch,
+    };
+    unsigned int i;
+
+    /*
+     * The legacy NewWorld profile selects the main UniNorth PCI domain as
+     * its primary architecture.  U3 and OldWorld machines have different
+     * host topologies and must not inherit these UniNorth-1 roots.
+     */
+    if (!is_newworld() ||
+        arch->vendor_id != PCI_VENDOR_ID_APPLE ||
+        arch->device_id != PCI_DEVICE_ID_APPLE_UNI_N_PCI) {
+        return;
+    }
+
+    for (i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
+        arch = roots[i];
+        ob_pci_init();
+    }
+
+    arch = saved_arch;
+}
+
 static int macio_nvram_shift(void)
 {
 	int nvram_flat;
@@ -279,6 +362,8 @@ ob_unin_init(void)
         set_property(dnode, "reg", (char *)&props, sizeof(props));
 
         fword("finish-device");
+
+        ob_unin_scan_extra_pci_roots();
 }
 
 static void macio_gpio_init(const char *path)

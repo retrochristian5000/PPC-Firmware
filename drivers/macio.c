@@ -117,6 +117,33 @@ static void ob_unin_scan_extra_pci_roots(void)
     arch = saved_arch;
 }
 
+static void ob_unin_set_sawtooth_usb_clock_ids(void)
+{
+    static const struct {
+        const char *path;
+        const char *clock_id;
+    } usb[] = {
+        { "/pci@f2000000/pci-bridge@d/usb@8", "usb0u048" },
+        { "/pci@f2000000/pci-bridge@d/usb@9", "usb1u148" },
+    };
+    unsigned int i;
+
+    /*
+     * Tiger's Core99 power tree distinguishes KeyLargo's two internal OHCI
+     * cells by these clock identifiers.  Attach them only to Sawtooth's
+     * physical DEC-secondary slots; customized USB devices elsewhere keep
+     * their independently discovered firmware identity.
+     */
+    for (i = 0; i < sizeof(usb) / sizeof(usb[0]); i++) {
+        phandle_t dnode = find_dev(usb[i].path);
+
+        if (dnode) {
+            set_property(dnode, "AAPL,clock-id", usb[i].clock_id,
+                         strlen(usb[i].clock_id) + 1);
+        }
+    }
+}
+
 static int macio_nvram_shift(void)
 {
 	int nvram_flat;
@@ -202,13 +229,13 @@ dump_nvram(void)
   for (i = 0; i < 10; i++)
     {
       for (j = 0; j < 16; j++)
-      printk ("%02x ", nvram[(i*16+j)<<4]);
+	printk ("%02x ", nvram[(i*16+j)<<4]);
       printk (" ");
       for (j = 0; j < 16; j++)
-        if (isprint(nvram[(i*16+j)<<4]))
-            printk("%c", nvram[(i*16+j)<<4]);
-        else
-          printk(".");
+	if (isprint(nvram[(i*16+j)<<4]))
+	    printk("%c", nvram[(i*16+j)<<4]);
+	else
+	  printk(".");
       printk ("\n");
       }
 }
@@ -363,6 +390,7 @@ ob_unin_init(void)
 
         fword("finish-device");
 
+        ob_unin_set_sawtooth_usb_clock_ids();
         ob_unin_scan_extra_pci_roots();
 }
 

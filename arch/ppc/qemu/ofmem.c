@@ -32,6 +32,9 @@ extern void dsi_exception(void);
 extern void isi_exception(void);
 extern void setup_mmu(unsigned long code_base);
 
+static void hash_page(unsigned long ea, phys_addr_t phys, ucell mode);
+static void unhash_page(unsigned long ea);
+
 /*
  * From Apple's BootX source comments:
  *
@@ -112,12 +115,20 @@ ucell ofmem_arch_get_virt_top(void)
 
 void ofmem_arch_unmap_pages(ucell virt, ucell size)
 {
-    /* kill page mappings in provided range */
+    ucell offset;
+
+    for (offset = 0; offset < size; offset += PAGE_SIZE) {
+        unhash_page(virt + offset);
+    }
 }
 
 void ofmem_arch_map_pages(phys_addr_t phys, ucell virt, ucell size, ucell mode)
 {
-    /* none yet */
+    ucell offset;
+
+    for (offset = 0; offset < size; offset += PAGE_SIZE) {
+        hash_page(virt + offset, phys + offset, mode);
+    }
 }
 
 ucell ofmem_arch_get_iomem_base(void)
@@ -338,7 +349,7 @@ hash_page_64(unsigned long ea, phys_addr_t phys, ucell mode)
     sdr_mask = 0x3FF80;
     page_mask = 0x0FFFFFFF; // XXX correct?
     pgidx = (ea & page_mask) >> PAGE_SHIFT;
-    avpn = (vsid << 12) | ((pgidx >> 4) & 0x0F80);;
+    avpn = (vsid << 12) | ((pgidx >> 4) & 0x0F80);
 
     hash = ((vsid ^ pgidx) << vsid_sh) & vsid_mask;
     htab_mask = 0x0FFFFFFF >> (28 - (sdr & 0x1F));
@@ -348,7 +359,7 @@ hash_page_64(unsigned long ea, phys_addr_t phys, ucell mode)
 
     /* replace old translation */
     for (found = 0, i = 0; !found && i < 8; i++)
-        if (pp[i].avpn == avpn)
+        if (pp[i].v && pp[i].avpn == (avpn >> 7))
             found = 1;
 
     /* otherwise use a free slot */
@@ -383,6 +394,44 @@ hash_page_64(unsigned long ea, phys_addr_t phys, ucell mode)
     }
 
     asm volatile("tlbie %0" :: "r"(ea));
+}
+
+static void
+unhash_page_64(unsigned long ea)
+{
+    uint64_t vsid_mask, page_mask, pgidx, hash;
+    uint64_t htab_mask, mask, avpn;
+    unsigned long pgaddr;
+    int i;
+    unsigned int vsid, vsid_sh, sdr, sdr_sh, sdr_mask;
+    mPTE_64_t *pp;
+
+    vsid = (ea >> 28) + SEGR_BASE;
+    vsid_sh = 7;
+    vsid_mask = 0x00003FFFFFFFFF80ULL;
+    sdr = mfsdr1();
+    sdr_sh = 18;
+    sdr_mask = 0x3FF80;
+    page_mask = 0x0FFFFFFF;
+    pgidx = (ea & page_mask) >> PAGE_SHIFT;
+    avpn = (vsid << 12) | ((pgidx >> 4) & 0x0F80);
+
+    hash = ((vsid ^ pgidx) << vsid_sh) & vsid_mask;
+    htab_mask = 0x0FFFFFFF >> (28 - (sdr & 0x1F));
+    mask = (htab_mask << sdr_sh) | sdr_mask;
+    pgaddr = sdr | (hash & mask);
+    pp = (mPTE_64_t *)pgaddr;
+
+    for (i = 0; i < 8; i++) {
+        if (pp[i].v && pp[i].avpn == (avpn >> 7)) {
+            pp[i].v = 0;
+            break;
+        }
+    }
+
+    asm volatile("sync" ::: "memory");
+    asm volatile("tlbie %0" :: "r"(ea));
+    asm volatile("sync" ::: "memory");
 }
 
 static void
@@ -426,6 +475,37 @@ hash_page_32(unsigned long ea, phys_addr_t phys, ucell mode)
 #endif
 }
 
+static void
+unhash_page_32(unsigned long ea)
+{
+#ifndef __powerpc64__
+    unsigned long *upte, cmp, hash1;
+    int i, vsid;
+    mPTE_t *pp;
+
+    vsid = (ea >> 28) + SEGR_BASE;
+    cmp = BIT(0) | (vsid << 7) | ((ea & 0x0fffffff) >> 22);
+
+    hash1 = vsid;
+    hash1 ^= (ea >> 12) & 0xffff;
+    hash1 &= (((mfsdr1() & 0x1ff) << 16) | 0xffff) >> 6;
+
+    pp = (mPTE_t *)(get_hash_base() + (hash1 << 6));
+    upte = (unsigned long *)pp;
+
+    for (i = 0; i < 8; i++) {
+        if (cmp == upte[i * 2]) {
+            upte[i * 2] = 0;
+            break;
+        }
+    }
+
+    asm volatile("sync" ::: "memory");
+    asm volatile("tlbie %0" :: "r"(ea));
+    asm volatile("sync" ::: "memory");
+#endif
+}
+
 static int is_ppc64(void)
 {
 #ifdef __powerpc64__
@@ -445,6 +525,14 @@ static void hash_page(unsigned long ea, phys_addr_t phys, ucell mode)
         hash_page_64(ea, phys, mode);
     else
         hash_page_32(ea, phys, mode);
+}
+
+static void unhash_page(unsigned long ea)
+{
+    if (is_ppc64())
+        unhash_page_64(ea);
+    else
+        unhash_page_32(ea);
 }
 
 void

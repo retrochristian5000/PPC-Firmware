@@ -242,7 +242,10 @@ mmu_map( void )
 static void
 mmu_unmap( void )
 {
-	POP(); POP();
+	ucell size = POP();
+	ucell virt = POP();
+
+	ofmem_unmap(virt, size);
 }
 
 /* ( virt -- false | phys mode true ) */

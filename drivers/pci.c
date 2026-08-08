@@ -12,7 +12,6 @@
  *   This program is free software; you can redistribute it and/or
  *   modify it under the terms of the GNU General Public License
  *   version 2
- *
  */
 
 #include "config.h"
@@ -545,6 +544,57 @@ static void pci_set_bus_range(const pci_config_t *config)
 	set_property(dev, "bus-range", (char *)props, 2 * sizeof(props[0]));
 }
 
+static void pci_set_dec_21154_ranges(pci_addr addr,
+                                     const pci_config_t *config,
+                                     unsigned long mem_start,
+                                     unsigned long mem_end,
+                                     unsigned long io_start,
+                                     unsigned long io_end)
+{
+    phandle_t dev;
+    u32 props[16];
+    int ncells = 0;
+
+    if (pci_config_read16(addr, PCI_VENDOR_ID) != PCI_VENDOR_ID_DEC ||
+        pci_config_read16(addr, PCI_DEVICE_ID) != PCI_DEVICE_ID_DEC_21154) {
+        return;
+    }
+
+    dev = find_dev(config->path);
+
+    /*
+     * PCI-to-PCI bridge ranges describe translations from the secondary
+     * PCI bus to the primary PCI bus.  The DEC 21154 is transparent for
+     * the windows OpenBIOS programs here, so child and parent addresses
+     * are identical and non-relocatable.
+     */
+    if (io_end > io_start) {
+        ncells += pci_encode_phys_addr(props + ncells,
+                                       IS_NOT_RELOCATABLE, IO_SPACE,
+                                       config->dev, 0, io_start);
+        ncells += pci_encode_phys_addr(props + ncells,
+                                       IS_NOT_RELOCATABLE, IO_SPACE,
+                                       config->dev, 0, io_start);
+        ncells += pci_encode_size(props + ncells, io_end - io_start);
+    }
+
+    if (mem_end > mem_start) {
+        ncells += pci_encode_phys_addr(props + ncells,
+                                       IS_NOT_RELOCATABLE, MEMORY_SPACE_32,
+                                       config->dev, 0, mem_start);
+        ncells += pci_encode_phys_addr(props + ncells,
+                                       IS_NOT_RELOCATABLE, MEMORY_SPACE_32,
+                                       config->dev, 0, mem_start);
+        ncells += pci_encode_size(props + ncells, mem_end - mem_start);
+    }
+
+    /* IEEE 1275 PCI binding: omit ranges if the bridge maps no addresses. */
+    if (ncells) {
+        set_property(dev, "ranges", (char *)props,
+                     ncells * sizeof(props[0]));
+    }
+}
+
 static void ob_pci_reload_device_path(phandle_t phandle, pci_config_t *config);
 
 static void pci_host_set_reg(phandle_t phandle, pci_config_t *config)
@@ -747,7 +797,6 @@ int eth_config_cb (const pci_config_t *config)
 int sunhme_config_cb(const pci_config_t *config)
 {
 	phandle_t ph = get_cur_dev();
-	
 	set_int_property(ph, "hm-rev", 0x21);
 	
 	return eth_config_cb(config);
@@ -1719,16 +1768,21 @@ static void ob_configure_pci_bridge(pci_addr addr,
     pci_config_write16(addr, PCI_IO_LIMIT_UPPER, ((*io_base - 1) >> 16));
     pci_config_write8(addr, PCI_IO_LIMIT, (((*io_base - 1) >> 8) & ~(0xf)));
 
-    /* Disable unused address spaces */
+    /* Disable unused address spaces.  Keep the command register and the
+     * device-tree ranges property describing the same forwarding state. */
     cmd = pci_config_read16(addr, PCI_COMMAND);
     if (*mem_base == old_mem_base) {
-        pci_config_write16(addr, PCI_COMMAND, (cmd & ~PCI_COMMAND_MEMORY));
+        cmd &= ~PCI_COMMAND_MEMORY;
     }
 
     if (*io_base == old_io_base) {
-        pci_config_write16(addr, PCI_COMMAND, (cmd & ~PCI_COMMAND_IO));
+        cmd &= ~PCI_COMMAND_IO;
     }
+    pci_config_write16(addr, PCI_COMMAND, cmd);
 
+    pci_set_dec_21154_ranges(addr, config,
+                             old_mem_base, *mem_base,
+                             old_io_base, *io_base);
     pci_set_bus_range(config);
 }
 

@@ -346,7 +346,7 @@ ob_pci_encode_unit(int *idx)
 
 		if (fn == 0)	/* DD */
         		snprintf(buf, sizeof(buf), "%x", dev);
-		else		/* DD,F */
+		else		/* DD,FF */
         		snprintf(buf, sizeof(buf), "%x,%x", dev, fn);
 		break;
 
@@ -1105,7 +1105,7 @@ int vga_config_cb (const pci_config_t *config)
 
                     bar = pci_config_read32(config->dev, PCI_ROM_ADDRESS);
                     bar |= PCI_ROM_ADDRESS_ENABLE;
-                    pci_config_write32(config->dev, PCI_COMMAND, bar);
+                    pci_config_write32(config->dev, PCI_ROM_ADDRESS, bar);
                     ph = get_cur_dev();
 
                     if (rom_size >= 8) {

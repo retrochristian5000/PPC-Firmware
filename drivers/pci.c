@@ -346,7 +346,7 @@ ob_pci_encode_unit(int *idx)
 
 		if (fn == 0)	/* DD */
         		snprintf(buf, sizeof(buf), "%x", dev);
-		else		/* DD,FF */
+		else		/* DD,F */
         		snprintf(buf, sizeof(buf), "%x,%x", dev, fn);
 		break;
 

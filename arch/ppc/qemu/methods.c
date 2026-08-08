@@ -212,7 +212,10 @@ mmu_claim( void )
 static void
 mmu_release( void )
 {
-	POP(); POP();
+	ucell size = POP();
+	ucell virt = POP();
+
+	ofmem_release_virt(virt, size);
 }
 
 /* ( phys virt size mode -- [ret???] ) */

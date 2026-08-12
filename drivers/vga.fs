@@ -159,6 +159,38 @@ defer vbe-iow!
 ;
 
 \
+\ QEMU VGA EDID
+\
+\ QEMU exposes the monitor EDID bytes at offset 0 in BAR2.  Publish the
+\ base 128-byte EDID block in the Open Firmware device tree when the
+\ standard EDID header is present.  encode-bytes copies the MMIO data into
+\ firmware-owned property storage, so the property remains stable.
+\
+
+h# 80 constant edid-base-size
+
+: qemu-edid-valid? ( -- flag )
+  mmio-addr -1 = if
+    false exit
+  then
+
+  mmio-addr       c@ h# 00 =
+  mmio-addr 1 +   c@ h# ff = and
+  mmio-addr 2 +   c@ h# ff = and
+  mmio-addr 3 +   c@ h# ff = and
+  mmio-addr 4 +   c@ h# ff = and
+  mmio-addr 5 +   c@ h# ff = and
+  mmio-addr 6 +   c@ h# ff = and
+  mmio-addr 7 +   c@ h# 00 = and
+;
+
+: qemu-edid-install ( -- )
+  qemu-edid-valid? if
+    mmio-addr edid-base-size encode-bytes " EDID" property
+  then
+;
+
+\
 \ Legacy IO port or QEMU MMIO accesses
 \
 \ legacy: use standard VGA ioport registers
@@ -256,6 +288,7 @@ headerless
     else
       ['] vga-mmio-ioc! to vga-ioc!
       ['] vbe-mmio-iow! to vbe-iow!
+      qemu-edid-install
     then
 
     vbe-init

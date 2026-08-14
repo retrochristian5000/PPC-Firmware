@@ -21,7 +21,6 @@ HOSTCFLAGS+= -W
 HOSTINCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel -I$(SRCDIR)/kernel/include -iquote $(ODIR)/target/include
 
 CC     := $(TARGET)gcc
-AS     := $(TARGET)as
 AR     := $(TARGET)ar
 LD     := $(TARGET)ld
 NM     := $(TARGET)nm

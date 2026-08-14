@@ -26,7 +26,7 @@ $(ODIR)/%.o: %.S
 	@$(RM) $@ $@.s
 	@$(CPP) $(ASMFLAGS) $(IDIRS) $< > /dev/null
 	$(CPP) $(ASMFLAGS) $(IDIRS) $(DEPFLAGS) $< $(INVOKE_M4) > $@.s
-	$(AS) $@.s $(AS_FLAGS) -o $@
+	$(CC) -c -x assembler $@.s $(AS_FLAGS) -o $@
 	@$(DEPEXTRA)
 	@$(RM) $@.s
 	@echo "ok"

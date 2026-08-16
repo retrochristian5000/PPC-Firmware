@@ -277,10 +277,11 @@ delete:
 			if( pos == n )
 				break;
 			emit( buf[pos++] );
-			/* fall through */
+			goto erase_char;
 
 		case 8: /* ^h */
 		case 127: /* backspace */
+erase_char:
 			drop = 1;
 			if( !pos )
 				break;

@@ -47,6 +47,15 @@ jobs:
           hid_poll = section(hid, 'static void\nusb_hid_poll', 'static int\nusb_hid_set_idle')
           if 'current.reserved = 0;' not in hid_poll:
               failures.append('HID must normalize the reserved boot-report byte before state comparison')
+          if 'usb_hid_keyboard_rollover' not in hid_poll:
+              failures.append('HID polling must detect and discard the six-slot ErrorRollOver phantom report')
+          if 'memset(&HID_INST(dev)->previous' not in hid_poll:
+              failures.append('HID rollover recovery must clear stale prior-key state')
+
+          if '#define HID_KEYBOARD_ERROR_ROLLOVER' not in hid:
+              failures.append('HID must name the Boot Keyboard ErrorRollOver usage')
+          if not re.search(r'for \(i = 0; i < 6; \+\+i\)', hid) or 'HID_KEYBOARD_ERROR_ROLLOVER' not in hid:
+              failures.append('HID ErrorRollOver detection must require all six key-array slots')
 
           hid_layout = section(hid, 'static int usb_hid_set_layout', '\nvoid\nusb_hid_init')
           if 'strcmp(' not in hid_layout or 'strncmp(' in hid_layout:
@@ -94,6 +103,16 @@ jobs:
               failures.append('OHCI init cleanup must not discard the volatile qualifier when freeing periodic_ed')
           if 'free((void *)periodic_ed);' not in init_fail:
               failures.append('OHCI init cleanup must explicitly cast the volatile ED for free()')
+
+          if re.search(r'(?<![A-Za-z0-9_])1\s*<<\s*31', ohci_private) or re.search(r'(?<![A-Za-z0-9_])1\s*<<\s*31', ohci):
+              failures.append('OHCI bit 31 masks must never be formed by shifting signed int 1')
+          if '#define MASK(startbit, lenbit) (((1U<<(lenbit))-1U)<<(startbit))' not in ohci_private:
+              failures.append('OHCI generic mask construction must use unsigned arithmetic')
+          if '#define MasterInterruptEnable (1U << 31)' not in ohci_private:
+              failures.append('OHCI master interrupt enable must be a named unsigned bit')
+          init = section(ohci, 'hci_t *\nohci_init', 'hci_t *\nohci_pci_init')
+          if 'MasterInterruptEnable' not in init:
+              failures.append('OHCI initialization must use the named master-interrupt bit')
 
           build_rule = section(makefile, 'build: start-build', '\n\nSUBDIR_RULES')
           if 'if ! $(MAKE) -C $$dir' not in build_rule or 'exit 1;' not in build_rule:

@@ -249,6 +249,8 @@ handle_calls(prom_args_t *pb)
 	int i, dstacksave;
 	ucell val;
 #ifdef DEBUG_CIF
+	/* Track the requested stack depth for diagnostics without affecting
+	 * non-debug builds or the runtime underflow guard below. */
 	int j;
 #endif
 
@@ -316,6 +318,8 @@ of_client_interface(int *params)
 	ucell val;
 	int i, dstacksave;
 #ifdef DEBUG_CIF
+	/* Track the requested stack depth for diagnostics without affecting
+	 * non-debug builds or the runtime underflow guard below. */
 	int j;
 #endif
 

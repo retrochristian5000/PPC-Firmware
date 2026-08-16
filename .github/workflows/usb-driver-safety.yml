@@ -91,6 +91,14 @@ jobs:
               failures.append('HID event decoding must use the layout owned by that keyboard instance')
           if re.search(r'^static const struct layout_maps \*map;', hid, re.M):
               failures.append('HID must not retain a global mutable keyboard layout pointer')
+          subclass_check = hid_init.index('if (interface->bInterfaceSubClass')
+          destroy_assign = hid_init.find('dev->destroy = usb_hid_destroy;')
+          if destroy_assign < 0 or destroy_assign > subclass_check:
+              failures.append('HID cleanup ownership must be installed before unsupported subclass/protocol exits')
+
+          hid_event = section(hid, 'usb_hid_process_keyboard_event', 'static void\nusb_hid_poll')
+          if "case 'A' ... 'Z':" not in hid_event:
+              failures.append('HID Ctrl handling must accept shifted alphabetic keys')
 
           const_outputs = re.findall(r'\b(?:td_t|ed_t|intr_queue_t|intrq_td_t) \*const \w+;\s*\n\s*ofmem_posix_memalign', ohci)
           if const_outputs:
@@ -135,6 +143,8 @@ jobs:
               failures.append('OHCI must rearm completed interrupt TDs with the spare buffer, not returned data')
           if 'intrq->spare_data = data;' not in intr_poll:
               failures.append('OHCI must rotate completed software-owned data into the spare slot')
+          if 'TD_CC_NOERR' not in intr_poll or 'condition_code' not in intr_poll or 'continue;' not in intr_poll:
+              failures.append('OHCI must discard failed interrupt TD payloads instead of returning them to HID')
 
           done_queue = section(ohci, 'ohci_process_done_queue', 'int ob_usb_ohci_init')
           if 'HccaDoneHead) & ~0xf' not in done_queue or 'done_td->next_td) & ~0xf' not in done_queue:

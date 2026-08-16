@@ -113,6 +113,10 @@ jobs:
           init = section(ohci, 'hci_t *\nohci_init', 'hci_t *\nohci_pci_init')
           if 'MasterInterruptEnable' not in init:
               failures.append('OHCI initialization must use the named master-interrupt bit')
+          if re.search(r'FrameIntervalMask\)\s*/\s*10\s*\*\s*9', init):
+              failures.append('OHCI periodic start must not truncate the frame interval before multiplying by 90 percent')
+          if not re.search(r'frame_interval\s*\*\s*9\s*\)\s*/\s*10', init):
+              failures.append('OHCI periodic start must compute floor(frame_interval * 9 / 10)')
 
           build_rule = section(makefile, 'build: start-build', '\n\nSUBDIR_RULES')
           if 'if ! $(MAKE) -C $$dir' not in build_rule or 'exit 1;' not in build_rule:

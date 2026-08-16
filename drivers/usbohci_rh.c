@@ -75,7 +75,7 @@ ohci_rh_enable_port (usbdev_t *dev, int port)
 			usb_debug("Warning: port reset too short: %dms; "
 					"should be at least 10ms.\n",
 					(200-timeout)/2);
-                        total_delay = 0; /* can happen on QEMU */
+			total_delay = 0; /* can happen on QEMU */
 		}
 		/* clear reset status change */
 		OHCI_INST(dev->controller)->opreg->HcRhPortStatus[port] =
@@ -101,7 +101,7 @@ ohci_rh_disable_port (usbdev_t *dev, int port)
 static void
 ohci_rh_scanport (usbdev_t *dev, int port)
 {
-	if (port >= RH_INST(dev)->numports) {
+	if (!dev->data || port < 0 || port >= RH_INST(dev)->numports) {
 		usb_debug("Invalid port %d\n", port);
 		return;
 	}
@@ -139,6 +139,9 @@ ohci_rh_report_port_changes (usbdev_t *dev)
 
 	int i;
 
+	if (!dev->data)
+		return -1;
+
 	for (i = 0; i < RH_INST(dev)->numports; i++) {
 		// maybe detach+attach happened between two scans?
 		if (READ_OPREG(ohcic, HcRhPortStatus[i]) & ConnectStatusChange) {
@@ -156,9 +159,16 @@ static void
 ohci_rh_destroy (usbdev_t *dev)
 {
 	int i;
+
+	if (!dev->data)
+		return;
+
 	for (i = 0; i < RH_INST (dev)->numports; i++)
 		ohci_rh_disable_port (dev, i);
+	free(RH_INST (dev)->port);
+	RH_INST (dev)->port = NULL;
 	free (RH_INST (dev));
+	dev->data = NULL;
 }
 
 static void
@@ -167,6 +177,9 @@ ohci_rh_poll (usbdev_t *dev)
 	ohci_t *const ohcic = OHCI_INST (dev->controller);
 
 	int port;
+
+	if (!dev->data)
+		return;
 
 	/* Check if anything changed. */
 	if (!(READ_OPREG(ohcic, HcInterruptStatus) & RootHubStatusChange))
@@ -192,9 +205,18 @@ ohci_rh_init (usbdev_t *dev)
 		printk("Not enough memory for OHCI RH.\n");
 		return;
 	}
+	memset(dev->data, 0, sizeof(rh_inst_t));
 
 	RH_INST (dev)->numports = READ_OPREG(OHCI_INST(dev->controller), HcRhDescriptorA) & NumberDownstreamPortsMask;
-	RH_INST (dev)->port = malloc(sizeof(int) * RH_INST (dev)->numports);
+	if (RH_INST (dev)->numports > 0) {
+		RH_INST (dev)->port = malloc(sizeof(int) * RH_INST (dev)->numports);
+		if (!RH_INST (dev)->port) {
+			printk("Not enough memory for OHCI RH ports.\n");
+			free(dev->data);
+			dev->data = NULL;
+			return;
+		}
+	}
 	usb_debug("%d ports registered\n", RH_INST (dev)->numports);
 
 	for (i = 0; i < RH_INST (dev)->numports; i++) {

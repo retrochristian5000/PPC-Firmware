@@ -894,20 +894,37 @@ ohci_destroy_intr_queue(endpoint_t *const ep, void *const q_)
 {
 	intr_queue_t *const intrq = (intr_queue_t *)q_;
 	int i;
+	int frame_timeout = 200;
+	u16 frame;
 
 	if (!ep || !intrq)
 		return;
 
+	ohci_t *const ohci = OHCI_INST(ep->dev->controller);
+
+	/* Stop the controller from fetching this ED before unlinking it. */
+	frame = __le16_to_cpu(ohci->hcca->HccaFrameNumber);
+	intrq->ed.config |= __cpu_to_le32(ED_SKIP);
+
 	/* Remove interrupt queue from periodic table. */
-	ohci_t *const ohci	= OHCI_INST(ep->dev->controller);
-	for (i=0; i < 32; ++i) {
+	for (i = 0; i < 32; ++i) {
 		if (ohci->hcca->HccaInterruptTable[i] ==
 				__cpu_to_le32(virt_to_phys(&intrq->ed)))
 			ohci->hcca->HccaInterruptTable[i] =
 				__cpu_to_le32(virt_to_phys(ohci->periodic_ed));
 	}
-	/* Wait for frame to finish. */
-	mdelay(1);
+
+	/* The HC can cache a periodic ED for the current frame. Wait until the
+	 * HCCA frame counter advances before reclaiming its TD and data memory. */
+	while (__le16_to_cpu(ohci->hcca->HccaFrameNumber) == frame &&
+			frame_timeout--)
+		udelay(10);
+	if (frame_timeout < 0) {
+		usb_debug("OHCI frame counter stalled while removing interrupt queue; "
+			"avoid freeing DMA-owned memory.\n");
+		intrq->destroy = 1;
+		return;
+	}
 
 	/* Collect TDs that already reached the done queue. */
 	ohci_process_done_queue(ohci, 1);

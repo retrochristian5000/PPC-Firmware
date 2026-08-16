@@ -45,6 +45,37 @@ DECLARE_NODE( macparts, INSTALL_OPEN, sizeof(macparts_info_t), "+/packages/mac-p
 #define SEEK( pos )		({ DPUSH(pos); call_parent(di->seek_xt); POP(); })
 #define READ( buf, size )	({ PUSH(pointer2cell(buf)); PUSH(size); call_parent(di->read_xt); POP(); })
 
+static int
+macparts_field_equals(const char *field, size_t field_size, const char *value)
+{
+	size_t value_len = strlen(value);
+
+	if (value_len >= field_size)
+		return 0;
+
+	return memcmp(field, value, value_len) == 0 && field[value_len] == '\0';
+}
+
+static int
+macparts_field_equals_ignore_case(const char *field, size_t field_size,
+		const char *value)
+{
+	size_t i, value_len = strlen(value);
+
+	if (value_len >= field_size)
+		return 0;
+
+	for (i = 0; i < value_len; i++) {
+		unsigned char field_ch = (unsigned char)field[i];
+		unsigned char value_ch = (unsigned char)value[i];
+
+		if (tolower(field_ch) != tolower(value_ch))
+			return 0;
+	}
+
+	return field[value_len] == '\0';
+}
+
 /* ( open -- flag ) */
 static void
 macparts_open( macparts_info_t *di )
@@ -52,6 +83,7 @@ macparts_open( macparts_info_t *di )
 	char *str = my_args_copy();
 	char *parstr = NULL, *argstr = NULL;
 	char *tmpstr;
+	int argstr_owned = 0;
 	int bs, parnum=-1, apple_parnum=-1;
 	int parlist[2], parlist_size = 0;
 	desc_map_t dmap;
@@ -77,13 +109,18 @@ macparts_open( macparts_info_t *di )
 		    fword("left-parse-string");
 		    parstr = pop_fstr_copy();
 		    argstr = pop_fstr_copy();
+		    argstr_owned = argstr != NULL;
 		} else {
 		    argstr = str;
 		}
 
 		/* Make sure argstr is not null */
-		if (argstr == NULL)
-		    argstr = strdup("");	
+		if (argstr == NULL) {
+		    argstr = strdup("");
+		    if (argstr == NULL)
+			goto out;
+		    argstr_owned = 1;
+		}
 		
 		/* Convert the id to a partition number */
 		if (parstr && strlen(parstr))
@@ -114,8 +151,8 @@ macparts_open( macparts_info_t *di )
 	bs = __be16_to_cpu(dmap.sbBlockSize);
 	if( bs != 512 ) {
 		SEEK( 512 );
-		READ( &par, sizeof(par) );
-		if( __be16_to_cpu(par.pmSig) == DESC_PART_SIGNATURE )
+		if (READ( &par, sizeof(par) ) == sizeof(par) &&
+		    __be16_to_cpu(par.pmSig) == DESC_PART_SIGNATURE)
 			bs = 512;
 	}
 	SEEK( bs );
@@ -151,12 +188,15 @@ macparts_open( macparts_info_t *di )
 		/* No partition was explicitly requested so let's find a suitable partition... */
 		for (i = 1; i <= __be32_to_cpu(par.pmMapBlkCnt); i++) {
 			SEEK( bs * i );
-			READ( &par, sizeof(par) );
+			if (READ( &par, sizeof(par) ) != sizeof(par))
+				break;
 			if ( __be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE ||
                             !__be32_to_cpu(par.pmPartBlkCnt) )
 				continue;
 
-			DPRINTF("found partition %d type: %s with status %x\n", i, par.pmPartType, __be32_to_cpu(par.pmPartStatus));
+			DPRINTF("found partition %d type: %.*s with status %x\n", i,
+				(int)sizeof(par.pmPartType), par.pmPartType,
+				__be32_to_cpu(par.pmPartStatus));
 
 			/* Unfortunately Apple's OF implementation doesn't follow the OF PowerPC CHRP bindings
 			* and instead will brute-force boot the first valid partition it finds with a
@@ -164,10 +204,10 @@ macparts_open( macparts_info_t *di )
 			* of the first partition that matches these criteria to use as a fallback later
 			* if required. */
 			if (apple_parnum == -1 &&
-				(strcmp(par.pmPartType, "Apple_Boot") == 0 || 
-				strcmp(par.pmPartType, "Apple_Bootstrap") == 0 || 
-				strcmp(par.pmPartType, "Apple_HFS") == 0 ||
-				strcmp(par.pmPartType, "DOS_FAT_") == 0)) {
+				(macparts_field_equals(par.pmPartType, sizeof(par.pmPartType), "Apple_Boot") ||
+				macparts_field_equals(par.pmPartType, sizeof(par.pmPartType), "Apple_Bootstrap") ||
+				macparts_field_equals(par.pmPartType, sizeof(par.pmPartType), "Apple_HFS") ||
+				macparts_field_equals(par.pmPartType, sizeof(par.pmPartType), "DOS_FAT_"))) {
 				apple_parnum = i;
 				
 				DPRINTF("Located Apple OF fallback partition %d\n", apple_parnum);
@@ -180,12 +220,9 @@ macparts_open( macparts_info_t *di )
 				
 				/* If the partition is also bootable and the pmProcessor field matches "PowerPC" (insensitive
 				 * match), then according to the CHRP bindings this is our chosen partition */
-				for (j = 0; j < strlen(par.pmProcessor); j++) {
-				    par.pmProcessor[j] = tolower(par.pmProcessor[j]);
-				}
-				
 				if ((__be32_to_cpu(par.pmPartStatus) & kPartitionAUXIsBootValid) &&
-				    strcmp(par.pmProcessor, "powerpc") == 0) {
+				    macparts_field_equals_ignore_case(par.pmProcessor,
+					    sizeof(par.pmProcessor), "powerpc")) {
 				    parnum = i;
 				
 				    DPRINTF("Located CHRP-compliant boot partition %d\n", parnum);
@@ -219,7 +256,10 @@ macparts_open( macparts_info_t *di )
 	    DPRINTF("Selected partition %d\n", parnum);
 	    
 	    SEEK( bs * parnum );
-	    READ( &par, sizeof(par) );	
+	    if (READ( &par, sizeof(par) ) != sizeof(par)) {
+		ret = 0;
+		continue;
+	    }
 
 	    if(! ((__be32_to_cpu(par.pmPartStatus) & kPartitionAUXIsValid) &&
 			(__be32_to_cpu(par.pmPartStatus) & kPartitionAUXIsAllocated) &&
@@ -269,16 +309,30 @@ macparts_open( macparts_info_t *di )
 
 	    ph = POP_ph();
 	    if( ph ) {
+		    size_t tmpstr_size;
+		    int written;
+
 		    DPRINTF("mac-parts: filesystem found on partition %d with ph " FMT_ucellx " and args %s\n", parnum, ph, argstr);
 		    di->filesystem_ph = ph;
 		    
 		    /* In case no partition was specified, set a special selected-partition-args property
 		       giving the device parameters that we can use to generate bootpath */
-		    tmpstr = malloc(strlen(argstr) + 2 + 1);
+		    tmpstr_size = strlen(argstr) + 32;
+		    tmpstr = malloc(tmpstr_size);
+		    if (tmpstr == NULL) {
+			ret = 0;
+			goto out;
+		    }
+
 		    if (strlen(argstr)) {
-			sprintf(tmpstr, "%d,%s", parnum, argstr);
+			written = snprintf(tmpstr, tmpstr_size, "%d,%s", parnum, argstr);
 		    } else {
-			sprintf(tmpstr, "%d", parnum);
+			written = snprintf(tmpstr, tmpstr_size, "%d", parnum);
+		    }
+		    if (written < 0 || (size_t)written >= tmpstr_size) {
+			free(tmpstr);
+			ret = 0;
+			goto out;
 		    }
 
 		    push_str(tmpstr);
@@ -305,16 +359,18 @@ macparts_open( macparts_info_t *di )
 		    }
 	    }
 	}
-	    
-	free( str );
 
 out:
+	if (argstr_owned)
+		free(argstr);
+	free(parstr);
+	free(str);
 	PUSH( ret );
 }
 
 /* ( block0 -- flag? ) */
 static void
-macparts_probe( macparts_info_t *dummy )
+macparts_probe( __attribute__((unused)) macparts_info_t *dummy )
 {
 	desc_map_t *dmap = (desc_map_t*)cell2pointer(POP());
 
@@ -356,7 +412,7 @@ macparts_block_size( macparts_info_t *di )
 }
 
 static void
-macparts_initialize( macparts_info_t *di )
+macparts_initialize( __attribute__((unused)) macparts_info_t *di )
 {
 	fword("register-partition-package");
 }

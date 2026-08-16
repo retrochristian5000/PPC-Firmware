@@ -948,7 +948,6 @@ static u8 *
 ohci_poll_intr_queue(void *const q_)
 {
 	intr_queue_t *const intrq = (intr_queue_t *)q_;
-	u8 *data = NULL;
 
 	if (!intrq || intrq->destroy)
 		return NULL;
@@ -956,14 +955,16 @@ ohci_poll_intr_queue(void *const q_)
 	/* Process done queue first, then check if we have work to do. */
 	ohci_process_done_queue(OHCI_INST(intrq->endp->dev->controller), 0);
 
-	if (intrq->head) {
-		/* Save pointer to processed TD and advance. */
+	while (intrq->head) {
 		intrq_td_t *const cur_td = intrq->head;
+		u32 condition_code;
+		u8 *data;
+
 		intrq->head = cur_td->next;
 		if (!intrq->head)
 			intrq->tail = NULL;
 
-		/* Hand the completed buffer to software. */
+		condition_code = __le32_to_cpu(cur_td->td.config) & TD_CC_MASK;
 		data = cur_td->data;
 
 		/* Requeue with the spare buffer so returned data is no longer DMA-owned. */
@@ -978,9 +979,17 @@ ohci_poll_intr_queue(void *const q_)
 		/* Insert into interrupt queue as dummy. */
 		dummy_td->td.next_td = __cpu_to_le32(virt_to_phys(&cur_td->td));
 		intrq->ed.tail_pointer = __cpu_to_le32(virt_to_phys(&cur_td->td));
+
+		if (condition_code != TD_CC_NOERR) {
+			usb_debug("Dropping failed OHCI interrupt packet, condition %u.\n",
+					condition_code >> TD_CC_SHIFT);
+			continue;
+		}
+
+		return data;
 	}
 
-	return data;
+	return NULL;
 }
 
 static void

@@ -432,8 +432,13 @@ macparts_initialize( __attribute__((unused)) macparts_info_t *di )
 static void
 macparts_seek(macparts_info_t *di )
 {
-	ducell pos = DPOP();
-	ducell offs, size;
+	dcell signed_pos = DPOP();
+	ducell pos, offs, size;
+
+	/* -1 means seek to EOF in the parent interface; reject it for a partition. */
+	if (signed_pos < 0)
+		RET( -1 );
+	pos = (ducell)signed_pos;
 
 	DPRINTF("macparts_seek %llx:\n", (unsigned long long)pos);
 

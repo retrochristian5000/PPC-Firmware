@@ -52,7 +52,7 @@ override CFLAGS += $(OPENBIOS_TARGET_OPTIMIZATION) -fno-strict-aliasing
 # registers. Linux-targeted GCC builds may also default to PIE/PIC. Keep the
 # ROM strictly freestanding so QEMU can enter it at its linked physical
 # address without r2/r13, GOT, or dynamic-relocation dependencies.
-override CFLAGS += -mcall-sysv-noeabi -msdata=none -G0 -fno-pic -fno-pie
+override CFLAGS += -ffreestanding -mcall-sysv-noeabi -msdata=none -G0 -fno-pic -fno-pie
 else
 CFLAGS += -Os
 endif

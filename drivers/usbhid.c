@@ -77,10 +77,13 @@ typedef union {
 	u8 buffer[8];
 } usb_hid_keyboard_event_t;
 
+struct layout_maps;
+
 typedef struct {
 	void *queue;
 	hid_descriptor_t *descriptor;
 	endpoint_t *endpoint;
+	const struct layout_maps *map;
 
 	usb_hid_keyboard_event_t previous;
 	int lastkeypress;
@@ -92,19 +95,24 @@ typedef struct {
 static void
 usb_hid_destroy (usbdev_t *dev)
 {
-	if (!dev->data)
-		return;
-
-	if (HID_INST(dev)->queue && HID_INST(dev)->endpoint) {
-		dev->controller->destroy_intr_queue(
-				HID_INST(dev)->endpoint, HID_INST(dev)->queue);
-		HID_INST(dev)->queue = NULL;
+	if (dev->data) {
+		if (HID_INST(dev)->queue && HID_INST(dev)->endpoint) {
+			dev->controller->destroy_intr_queue(
+					HID_INST(dev)->endpoint, HID_INST(dev)->queue);
+			HID_INST(dev)->queue = NULL;
+		}
+		HID_INST(dev)->endpoint = NULL;
+		free(HID_INST(dev)->descriptor);
+		HID_INST(dev)->descriptor = NULL;
+		HID_INST(dev)->map = NULL;
+		free(dev->data);
+		dev->data = NULL;
 	}
-	HID_INST(dev)->endpoint = NULL;
-	free(HID_INST(dev)->descriptor);
-	HID_INST(dev)->descriptor = NULL;
-	free(dev->data);
-	dev->data = NULL;
+
+	free(dev->configuration);
+	dev->configuration = NULL;
+	free(dev->descriptor);
+	dev->descriptor = NULL;
 }
 
 /* keybuffer is global to all USB keyboards */
@@ -158,8 +166,6 @@ struct layout_maps {
 	const char *country;
 	const short map[4][0x80];
 };
-
-static const struct layout_maps *map;
 
 #define KEY_BREAK     0x101  /* Not on PC KBD */
 #define KEY_DOWN      0x102  /* Down arrow key */
@@ -357,7 +363,7 @@ usb_hid_process_keyboard_event(usbhid_inst_t *const inst,
 
 
 		/* Mask off MOD_CTRL */
-		keypress = map->map[modifiers & 0x03][current->keys[i]];
+		keypress = inst->map->map[modifiers & 0x03][current->keys[i]];
 
 		if (modifiers & MOD_CTRL) {
 			switch (keypress) {
@@ -451,9 +457,8 @@ usb_hid_queue_timing(usbdev_t *dev)
 	return 1 << interval;
 }
 
-static int usb_hid_set_layout (const char *country)
+static int usb_hid_set_layout (usbhid_inst_t *inst, const char *country)
 {
-	/* FIXME should be per keyboard */
 	unsigned int i;
 
 	for (i = 0; i < (unsigned int)(sizeof(keyboard_layouts) / sizeof(keyboard_layouts[0])); i++) {
@@ -461,15 +466,12 @@ static int usb_hid_set_layout (const char *country)
 					strlen(keyboard_layouts[i].country)))
 			continue;
 
-		/* Found, changing keyboard layout */
-		map = &keyboard_layouts[i];
-		usb_debug("  Keyboard layout '%s'\n", map->country);
+		inst->map = &keyboard_layouts[i];
+		usb_debug("  Keyboard layout '%s'\n", inst->map->country);
 		return 0;
 	}
 
 	usb_debug("  Keyboard layout '%s' not found\n", country);
-
-	/* Nothing found, not changed */
 	return -1;
 }
 
@@ -498,6 +500,7 @@ usb_hid_init (usbdev_t *dev)
 				return;
 			}
 			memset(dev->data, 0, sizeof(usbhid_inst_t));
+			HID_INST(dev)->map = &keyboard_layouts[0];
 			dev->destroy = usb_hid_destroy;
 
 			usb_debug ("  configuring...\n");
@@ -532,9 +535,8 @@ usb_hid_init (usbdev_t *dev)
 			usb_debug ("  Keyboard has %s layout (country code %02x)\n",
 					countries[countrycode][0], countrycode);
 
-			/* Set keyboard layout accordingly */
-			if (usb_hid_set_layout(countries[countrycode][1]))
-				map = &keyboard_layouts[0];
+			if (usb_hid_set_layout(HID_INST(dev), countries[countrycode][1]))
+				HID_INST(dev)->map = &keyboard_layouts[0];
 
 			for (i = 1; i < dev->num_endp; i++) {
 				if (dev->endpoints[i].type != INTERRUPT)

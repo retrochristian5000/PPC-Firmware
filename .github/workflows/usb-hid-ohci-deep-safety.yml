@@ -7,6 +7,7 @@ on:
     paths:
       - 'drivers/usbhid.c'
       - 'drivers/usbohci.c'
+      - 'drivers/usbohci_private.h'
       - '.github/workflows/usb-hid-ohci-deep-safety.yml'
   workflow_dispatch:
 
@@ -35,6 +36,7 @@ jobs:
 
           hid = Path('drivers/usbhid.c').read_text()
           ohci = Path('drivers/usbohci.c').read_text()
+          ohci_private = Path('drivers/usbohci_private.h').read_text()
 
           hid_event_type = section(hid, 'typedef union {', '} usb_hid_keyboard_event_t;')
           if 'u8 reserved;' not in hid_event_type or 'u8 repeats;' in hid_event_type:
@@ -73,6 +75,17 @@ jobs:
               failures.append('OHCI TD diagnostics must not decode PID/direction from bits 8-9')
           if 'TD_DIRECTION_MASK' not in dump_td or 'TD_DIRECTION_SHIFT' not in dump_td:
               failures.append('OHCI TD diagnostics must use the named TD direction field')
+
+          if '#define ED_SKIP' not in ohci_private:
+              failures.append('OHCI must name the endpoint-descriptor Skip bit')
+          if 'ED_SKIP' not in intr_destroy:
+              failures.append('OHCI interrupt teardown must mark the ED skipped before unlinking it')
+          if 'HccaFrameNumber' not in intr_destroy or '__le16_to_cpu' not in intr_destroy:
+              failures.append('OHCI interrupt teardown must synchronize to the controller frame counter')
+          if 'mdelay(1);' in intr_destroy:
+              failures.append('OHCI interrupt teardown must not rely on a blind one-millisecond delay')
+          if 'avoid freeing DMA-owned memory' not in intr_destroy:
+              failures.append('OHCI frame-sync failure must preserve DMA-owned queue memory')
 
           if failures:
               for failure in failures:

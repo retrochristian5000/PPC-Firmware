@@ -78,8 +78,9 @@ typedef union {
 } usb_hid_keyboard_event_t;
 
 typedef struct {
-	void* queue;
+	void *queue;
 	hid_descriptor_t *descriptor;
+	endpoint_t *endpoint;
 
 	usb_hid_keyboard_event_t previous;
 	int lastkeypress;
@@ -94,24 +95,15 @@ usb_hid_destroy (usbdev_t *dev)
 	if (!dev->data)
 		return;
 
-	if (HID_INST(dev)->queue) {
-		int i;
-		for (i = 0; i < dev->num_endp; i++) {
-			if (dev->endpoints[i].endpoint == 0)
-				continue;
-			if (dev->endpoints[i].type != INTERRUPT)
-				continue;
-			if (dev->endpoints[i].direction != IN)
-				continue;
-			break;
-		}
-		if (i < dev->num_endp) {
-			dev->controller->destroy_intr_queue(
-					&dev->endpoints[i], HID_INST(dev)->queue);
-		}
+	if (HID_INST(dev)->queue && HID_INST(dev)->endpoint) {
+		dev->controller->destroy_intr_queue(
+				HID_INST(dev)->endpoint, HID_INST(dev)->queue);
 		HID_INST(dev)->queue = NULL;
 	}
-	free (dev->data);
+	HID_INST(dev)->endpoint = NULL;
+	free(HID_INST(dev)->descriptor);
+	HID_INST(dev)->descriptor = NULL;
+	free(dev->data);
 	dev->data = NULL;
 }
 
@@ -413,10 +405,12 @@ usb_hid_poll (usbdev_t *dev)
 	}
 }
 
-static void
+static int
 usb_hid_set_idle (usbdev_t *dev, interface_descriptor_t *interface, u16 duration)
 {
 	dev_req_t dr;
+
+	memset(&dr, 0, sizeof(dr));
 	dr.data_dir = host_to_device;
 	dr.req_type = class_type;
 	dr.req_recp = iface_recp;
@@ -424,13 +418,15 @@ usb_hid_set_idle (usbdev_t *dev, interface_descriptor_t *interface, u16 duration
 	dr.wValue = __cpu_to_le16((duration >> 2) << 8);
 	dr.wIndex = __cpu_to_le16(interface->bInterfaceNumber);
 	dr.wLength = 0;
-	dev->controller->control (dev, OUT, sizeof (dev_req_t), &dr, 0, 0);
+	return dev->controller->control (dev, OUT, sizeof (dev_req_t), &dr, 0, 0);
 }
 
-static void
+static int
 usb_hid_set_protocol (usbdev_t *dev, interface_descriptor_t *interface, hid_proto proto)
 {
 	dev_req_t dr;
+
+	memset(&dr, 0, sizeof(dr));
 	dr.data_dir = host_to_device;
 	dr.req_type = class_type;
 	dr.req_recp = iface_recp;
@@ -438,7 +434,21 @@ usb_hid_set_protocol (usbdev_t *dev, interface_descriptor_t *interface, hid_prot
 	dr.wValue = __cpu_to_le16(proto);
 	dr.wIndex = __cpu_to_le16(interface->bInterfaceNumber);
 	dr.wLength = 0;
-	dev->controller->control (dev, OUT, sizeof (dev_req_t), &dr, 0, 0);
+	return dev->controller->control (dev, OUT, sizeof (dev_req_t), &dr, 0, 0);
+}
+
+static int
+usb_hid_queue_timing(usbdev_t *dev)
+{
+	int interval = HID_INST(dev)->endpoint->interval;
+
+	/* Endpoint intervals are log2(microframes); OHCI schedules 1ms frames. */
+	if (interval <= 3)
+		return 1;
+	interval -= 3;
+	if (interval >= 5)
+		return 32;
+	return 1 << interval;
 }
 
 static int usb_hid_set_layout (const char *country)
@@ -480,6 +490,7 @@ usb_hid_init (usbdev_t *dev)
 		switch (interface->bInterfaceProtocol) {
 		case hid_boot_proto_keyboard: {
 			int i;
+			int timing;
 
 			dev->data = malloc (sizeof (usbhid_inst_t));
 			if (!dev->data) {
@@ -487,18 +498,34 @@ usb_hid_init (usbdev_t *dev)
 				return;
 			}
 			memset(dev->data, 0, sizeof(usbhid_inst_t));
+			dev->destroy = usb_hid_destroy;
+
 			usb_debug ("  configuring...\n");
-			usb_hid_set_protocol(dev, interface, hid_proto_boot);
-			usb_hid_set_idle(dev, interface, KEYBOARD_REPEAT_MS);
+			if (usb_hid_set_protocol(dev, interface, hid_proto_boot)) {
+				usb_debug("NOTICE: could not select USB HID boot protocol.\n");
+				usb_detach_device(dev->controller, dev->address);
+				return;
+			}
+			if (usb_hid_set_idle(dev, interface, KEYBOARD_REPEAT_MS)) {
+				usb_debug("NOTICE: could not configure USB HID idle rate.\n");
+				usb_detach_device(dev->controller, dev->address);
+				return;
+			}
 			usb_debug ("  activating...\n");
-#if 0
-			HID_INST (dev)->descriptor =
-				(hid_descriptor_t *)
-					get_descriptor(dev, gen_bmRequestType
+
+			HID_INST(dev)->descriptor =
+				(hid_descriptor_t *)get_descriptor(dev, gen_bmRequestType
 					(device_to_host, standard_type, iface_recp),
-					0x21, 0, 0);
-			countrycode = HID_INST(dev)->descriptor->bCountryCode;
-#endif
+					0x21, 0, interface->bInterfaceNumber);
+			if (HID_INST(dev)->descriptor) {
+				if (HID_INST(dev)->descriptor->bLength >= sizeof(hid_descriptor_t))
+					countrycode = HID_INST(dev)->descriptor->bCountryCode;
+				else {
+					free(HID_INST(dev)->descriptor);
+					HID_INST(dev)->descriptor = NULL;
+				}
+			}
+
 			/* 35 countries defined: */
 			if (countrycode > 35)
 				countrycode = 0;
@@ -509,9 +536,7 @@ usb_hid_init (usbdev_t *dev)
 			if (usb_hid_set_layout(countries[countrycode][1]))
 				map = &keyboard_layouts[0];
 
-			for (i = 0; i < dev->num_endp; i++) {
-				if (dev->endpoints[i].endpoint == 0)
-					continue;
+			for (i = 1; i < dev->num_endp; i++) {
 				if (dev->endpoints[i].type != INTERRUPT)
 					continue;
 				if (dev->endpoints[i].direction != IN)
@@ -520,22 +545,22 @@ usb_hid_init (usbdev_t *dev)
 			}
 			if (i == dev->num_endp) {
 				usb_debug("NOTICE: USB HID keyboard has no interrupt-IN endpoint.\n");
-				free(dev->data);
-				dev->data = NULL;
+				usb_detach_device(dev->controller, dev->address);
 				return;
 			}
-			usb_debug ("  found endpoint %x for interrupt-in\n", i);
-			/* 20 buffers of 8 bytes, for every 10 msecs */
+			HID_INST(dev)->endpoint = &dev->endpoints[i];
+			timing = usb_hid_queue_timing(dev);
+			usb_debug ("  found endpoint %x for interrupt-in, polling every %dms\n",
+					i, timing);
+			/* 20 buffers of 8 bytes, using the endpoint's normalized interval. */
 			HID_INST(dev)->queue = dev->controller->create_intr_queue (
-					&dev->endpoints[i], 8, 20, 10);
+					HID_INST(dev)->endpoint, 8, 20, timing);
 			if (!HID_INST(dev)->queue) {
 				usb_debug("NOTICE: could not create USB HID interrupt queue.\n");
-				free(dev->data);
-				dev->data = NULL;
+				usb_detach_device(dev->controller, dev->address);
 				return;
 			}
 			// only add here, because we only support boot-keyboard HID devices
-			dev->destroy = usb_hid_destroy;
 			dev->poll = usb_hid_poll;
 			keycount = 0;
 			usb_debug ("  configuration done.\n");

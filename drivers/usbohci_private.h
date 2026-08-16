@@ -219,6 +219,7 @@
 #define ED_DIR_SHIFT 11
 #define ED_DIR_MASK MASK(11, 2)
 #define ED_LOWSPEED (1 << 13)
+#define ED_SKIP (1 << 14)
 #define ED_MPS_SHIFT 16
 
 	typedef volatile struct {

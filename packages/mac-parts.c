@@ -93,7 +93,7 @@ macparts_open( macparts_info_t *di )
 	phandle_t ph;
 	ducell offs = 0, size = -1;
 
-	DPRINTF("macparts_open '%s'\n", str );
+	DPRINTF("macparts_open '%s'\n", str ? str : "" );
 
 	/* 
 		Arguments that we accept:
@@ -132,7 +132,8 @@ macparts_open( macparts_info_t *di )
 		}
 	}
 
-	DPRINTF("parstr: %s  argstr: %s  parnum: %d\n", parstr, argstr, parnum);
+	DPRINTF("parstr: %s  argstr: %s  parnum: %d\n",
+		parstr ? parstr : "", argstr ? argstr : "", parnum);
 
 	DPRINTF("want_bootcode %d\n", want_bootcode);
 	DPRINTF("macparts_open %d\n", parnum);
@@ -140,8 +141,11 @@ macparts_open( macparts_info_t *di )
 	di->filesystem_ph = 0;
 	di->read_xt = find_parent_method("read");
 	di->seek_xt = find_parent_method("seek");
+	if (!di->read_xt || !di->seek_xt)
+		goto out;
 
-	SEEK( 0 );
+	if (SEEK( 0 ) != 0)
+		goto out;
 	if( READ(&dmap, sizeof(dmap)) != sizeof(dmap) )
 		goto out;
 
@@ -149,13 +153,16 @@ macparts_open( macparts_info_t *di )
 	 * pmPyPartStart is typically given in terms of 512 byte blocks.
 	 */
 	bs = __be16_to_cpu(dmap.sbBlockSize);
+	if (!bs)
+		goto out;
 	if( bs != 512 ) {
-		SEEK( 512 );
-		if (READ( &par, sizeof(par) ) == sizeof(par) &&
+		if (SEEK( 512 ) == 0 &&
+		    READ( &par, sizeof(par) ) == sizeof(par) &&
 		    __be16_to_cpu(par.pmSig) == DESC_PART_SIGNATURE)
 			bs = 512;
 	}
-	SEEK( bs );
+	if (SEEK( bs ) != 0)
+		goto out;
 	if( READ(&par, sizeof(par)) != sizeof(par) )
 		goto out;
         if (__be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE)
@@ -187,7 +194,8 @@ macparts_open( macparts_info_t *di )
 
 		/* No partition was explicitly requested so let's find a suitable partition... */
 		for (i = 1; i <= __be32_to_cpu(par.pmMapBlkCnt); i++) {
-			SEEK( bs * i );
+			if (SEEK( (ducell)bs * i ) != 0)
+				break;
 			if (READ( &par, sizeof(par) ) != sizeof(par))
 				break;
 			if ( __be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE ||
@@ -255,8 +263,9 @@ macparts_open( macparts_info_t *di )
 	    
 	    DPRINTF("Selected partition %d\n", parnum);
 	    
-	    SEEK( bs * parnum );
-	    if (READ( &par, sizeof(par) ) != sizeof(par)) {
+	    if (SEEK( (ducell)bs * parnum ) != 0 ||
+		READ( &par, sizeof(par) ) != sizeof(par) ||
+		__be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE) {
 		ret = 0;
 		continue;
 	    }

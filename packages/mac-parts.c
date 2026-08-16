@@ -93,7 +93,7 @@ macparts_open( macparts_info_t *di )
 	int ret = 0, i = 0, j = 0;
 	int want_bootcode = 0;
 	phandle_t ph;
-	ducell offs = 0, size = -1;
+	ducell offs = 0, size = (ducell)-1;
 
 	DPRINTF("macparts_open '%s'\n", str ? str : "" );
 
@@ -176,8 +176,8 @@ macparts_open( macparts_info_t *di )
 
 	if (argstr == NULL || parnum == 0) {
 		/* According to the spec, partition 0 as well as no arguments means the whole disk */
-		offs = (long long)0;
-		size = (long long)__be32_to_cpu(dmap.sbBlkCount) * bs;
+		offs = 0;
+		size = (ducell)__be32_to_cpu(dmap.sbBlkCount) * bs;
 
 		di->blocksize = (unsigned int)bs;
 
@@ -280,19 +280,19 @@ macparts_open( macparts_info_t *di )
 	    
 	    ret = -1;
 
-	    offs = (long long)__be32_to_cpu(par.pmPyPartStart) * bs;
-	    size = (long long)__be32_to_cpu(par.pmPartBlkCnt) * bs;	
+	    offs = (ducell)__be32_to_cpu(par.pmPyPartStart) * bs;
+	    size = (ducell)__be32_to_cpu(par.pmPartBlkCnt) * bs;
 	    
 	    if (want_bootcode) {
 		/* If size == 0 then fail because we requested bootcode but it doesn't exist */
-		size = (long long)__be32_to_cpu(par.pmBootSize);
+		size = (ducell)__be32_to_cpu(par.pmBootSize);
 		if (!size) {
 		    ret = 0;
 		    goto out;
 		}
 
 		/* Adjust seek position so 0 = start of bootcode */
-		offs += (long long)__be32_to_cpu(par.pmLgBootStart) * bs;
+		offs += (ducell)__be32_to_cpu(par.pmLgBootStart) * bs;
 
 		di->bootcode_addr = __be32_to_cpu(par.pmBootLoad);
 		di->bootcode_entry = __be32_to_cpu(par.pmBootEntry);
@@ -432,10 +432,10 @@ macparts_initialize( __attribute__((unused)) macparts_info_t *di )
 static void
 macparts_seek(macparts_info_t *di )
 {
-	long long pos = DPOP();
-	long long offs, size;
+	ducell pos = DPOP();
+	ducell offs, size;
 
-	DPRINTF("macparts_seek %llx:\n", pos);
+	DPRINTF("macparts_seek %llx:\n", (unsigned long long)pos);
 
 	/* Seek is invalid if we reach the end of the device */
 	size = ((ducell)di->size_hi << BITS) | di->size_lo;
@@ -447,7 +447,7 @@ macparts_seek(macparts_info_t *di )
 	offs += pos;
 	DPUSH(offs);
 
-	DPRINTF("macparts_seek parent offset %llx:\n", offs);
+	DPRINTF("macparts_seek parent offset %llx:\n", (unsigned long long)offs);
 
 	call_package(di->seek_xt, my_parent());
 }

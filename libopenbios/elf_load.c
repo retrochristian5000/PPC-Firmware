@@ -357,6 +357,7 @@ elf_readhdrs(int offset, Elf_ehdr *ehdr)
 {
     unsigned long phdr_size;
     Elf_phdr *phdr;
+
     phdr_size = ehdr->e_phnum * sizeof(Elf_phdr);
     phdr = malloc(phdr_size);
     seek_io(fd, offset + ehdr->e_phoff);

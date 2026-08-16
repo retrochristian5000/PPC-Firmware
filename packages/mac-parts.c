@@ -50,10 +50,12 @@ macparts_field_equals(const char *field, size_t field_size, const char *value)
 {
 	size_t value_len = strlen(value);
 
-	if (value_len >= field_size)
+	if (value_len > field_size)
+		return 0;
+	if (memcmp(field, value, value_len) != 0)
 		return 0;
 
-	return memcmp(field, value, value_len) == 0 && field[value_len] == '\0';
+	return value_len == field_size || field[value_len] == '\0';
 }
 
 static int
@@ -62,7 +64,7 @@ macparts_field_equals_ignore_case(const char *field, size_t field_size,
 {
 	size_t i, value_len = strlen(value);
 
-	if (value_len >= field_size)
+	if (value_len > field_size)
 		return 0;
 
 	for (i = 0; i < value_len; i++) {
@@ -73,7 +75,7 @@ macparts_field_equals_ignore_case(const char *field, size_t field_size,
 			return 0;
 	}
 
-	return field[value_len] == '\0';
+	return value_len == field_size || field[value_len] == '\0';
 }
 
 /* ( open -- flag ) */

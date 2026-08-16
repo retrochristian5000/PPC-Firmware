@@ -41,10 +41,16 @@ jobs:
           grep -q 'free(argstr);' packages/mac-parts.c
           grep -q 'free(str);' packages/mac-parts.c
 
-      - name: Require partition-map I/O validation
+      - name: Require typed partition-map I/O validation
         run: |
           set -eu
-          grep -q 'if (SEEK( 0 ) != 0)' packages/mac-parts.c
+          if grep -Eq '^#define[[:space:]]+(SEEK|READ)' packages/mac-parts.c; then
+            echo 'error: parent partition I/O must use typed helpers, not statement-expression macros' >&2
+            exit 1
+          fi
+          grep -q 'macparts_parent_seek(macparts_info_t \*di, ducell pos)' packages/mac-parts.c
+          grep -q 'macparts_parent_read(macparts_info_t \*di, void \*buf, size_t size)' packages/mac-parts.c
+          grep -q 'macparts_parent_seek(di, 0) != 0' packages/mac-parts.c
           signature_checks=$(grep -c '__be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE' packages/mac-parts.c)
           if [ "$signature_checks" -lt 3 ]; then
             echo 'error: selected partition entries must be signature-validated after reread' >&2

@@ -270,8 +270,8 @@ ohci_init (void *bar)
 	OHCI_INST (controller)->opreg->HcControl |= __cpu_to_le32(PeriodicListEnable);
 	OHCI_INST (controller)->opreg->HcControl &= __cpu_to_le32(~IsochronousEnable); // unused by this driver
 	// disable everything, contrary to what OHCI spec says in 5.1.1.4, as we don't need IRQs
-	OHCI_INST (controller)->opreg->HcInterruptEnable = __cpu_to_le32(1<<31);
-	OHCI_INST (controller)->opreg->HcInterruptDisable = __cpu_to_le32(~(1<<31));
+	OHCI_INST (controller)->opreg->HcInterruptEnable = __cpu_to_le32(MasterInterruptEnable);
+	OHCI_INST (controller)->opreg->HcInterruptDisable = __cpu_to_le32(~MasterInterruptEnable);
 	OHCI_INST (controller)->opreg->HcInterruptStatus = __cpu_to_le32(~0);
 	OHCI_INST (controller)->opreg->HcPeriodicStart =
 		__cpu_to_le32((READ_OPREG(OHCI_INST(controller), HcFmInterval) & FrameIntervalMask) / 10 * 9);

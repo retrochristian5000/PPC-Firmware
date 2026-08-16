@@ -64,6 +64,26 @@ jobs:
           if 'if (i == dev->num_endp)' not in hid:
               failures.append('HID init must reject a missing interrupt-IN endpoint')
 
+          hid_inst = section(hid, 'typedef struct {', '#define HID_INST')
+          if 'endpoint_t *endpoint;' not in hid_inst:
+              failures.append('HID instances must retain the interrupt endpoint they actually queued')
+
+          hid_destroy = section(hid, 'usb_hid_destroy', '/* keybuffer is global')
+          if 'HID_INST(dev)->endpoint' not in hid_destroy:
+              failures.append('HID teardown must destroy the queue through its retained endpoint')
+
+          if not re.search(r'static int\s+usb_hid_set_idle', hid):
+              failures.append('HID SET_IDLE must return controller transfer status')
+          if not re.search(r'static int\s+usb_hid_set_protocol', hid):
+              failures.append('HID SET_PROTOCOL must return controller transfer status')
+          hid_init = section(hid, 'void\nusb_hid_init', 'static int usbhid_havechar')
+          if 'if (usb_hid_set_protocol' not in hid_init or 'if (usb_hid_set_idle' not in hid_init:
+              failures.append('HID init must stop when boot-protocol or idle configuration fails')
+          if 'usb_hid_queue_timing' not in hid or 'HID_INST(dev)->endpoint->interval' not in hid:
+              failures.append('HID interrupt timing must derive from the normalized endpoint interval')
+          if 'free(HID_INST(dev)->descriptor)' not in hid_destroy:
+              failures.append('HID teardown must release the HID descriptor it owns')
+
           const_outputs = re.findall(r'\b(?:td_t|ed_t|intr_queue_t|intrq_td_t) \*const \w+;\s*\n\s*ofmem_posix_memalign', ohci)
           if const_outputs:
               failures.append('OHCI must not write allocation results through const pointer objects')
@@ -81,6 +101,26 @@ jobs:
           intr_create = section(ohci, 'ohci_create_intr_queue(endpoint_t', '/* remove queue from device schedule')
           if 'reqsize <= 0' not in intr_create or 'reqcount <= 0' not in intr_create or 'reqtiming <= 0' not in intr_create:
               failures.append('OHCI interrupt queue must reject invalid size/count/timing')
+          if 'reqtiming > 32' not in intr_create or 'reqtiming & (reqtiming - 1)' not in intr_create:
+              failures.append('OHCI periodic queue timing must fit the 32-frame table and be a power of two')
+          if 'for (phase = 0; phase < reqtiming; ++phase)' not in intr_create:
+              failures.append('OHCI periodic placement must reserve one consistent phase across the frame table')
+          if '(reqcount + 1)' not in intr_create:
+              failures.append('OHCI interrupt queues need one spare DMA buffer beyond active TD buffers')
+
+          intr_struct = section(ohci, 'struct _intr_queue {', 'typedef struct _intrq_td')
+          if 'u8' not in intr_struct or 'spare_data' not in intr_struct:
+              failures.append('OHCI interrupt queues must track the spare DMA buffer')
+
+          intr_poll = section(ohci, 'ohci_poll_intr_queue', 'static void\nohci_process_done_queue')
+          if 'ohci_fill_intrq_td(dummy_td, intrq, intrq->spare_data)' not in intr_poll:
+              failures.append('OHCI must rearm completed interrupt TDs with the spare buffer, not returned data')
+          if 'intrq->spare_data = data;' not in intr_poll:
+              failures.append('OHCI must rotate completed software-owned data into the spare slot')
+
+          done_queue = section(ohci, 'ohci_process_done_queue', 'int ob_usb_ohci_init')
+          if 'HccaDoneHead) & ~0xf' not in done_queue or 'done_td->next_td) & ~0xf' not in done_queue:
+              failures.append('OHCI done-queue pointers must clear all alignment/status low bits')
 
           if 'free(RH_INST (dev)->port)' not in rh and 'free(RH_INST(dev)->port)' not in rh:
               failures.append('OHCI root-hub destroy must free the port array')

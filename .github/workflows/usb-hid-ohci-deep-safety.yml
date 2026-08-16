@@ -1,0 +1,76 @@
+name: USB HID and OHCI deep safety
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'drivers/usbhid.c'
+      - 'drivers/usbohci.c'
+      - '.github/workflows/usb-hid-ohci-deep-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deep-usb-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Check deeper HID and OHCI invariants
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          failures = []
+
+          def section(text, start_marker, end_marker):
+              start = text.index(start_marker)
+              end = text.index(end_marker, start + len(start_marker))
+              return text[start:end]
+
+          hid = Path('drivers/usbhid.c').read_text()
+          ohci = Path('drivers/usbohci.c').read_text()
+
+          hid_event_type = section(hid, 'typedef union {', '} usb_hid_keyboard_event_t;')
+          if 'u8 reserved;' not in hid_event_type or 'u8 repeats;' in hid_event_type:
+              failures.append('HID boot report byte 1 must be treated as reserved, not repeat state')
+
+          hid_poll = section(hid, 'static void\nusb_hid_poll', 'static int\nusb_hid_set_idle')
+          if 'current.reserved = 0;' not in hid_poll:
+              failures.append('HID must normalize the reserved boot-report byte before state comparison')
+
+          hid_layout = section(hid, 'static int usb_hid_set_layout', '\nvoid\nusb_hid_init')
+          if 'strcmp(' not in hid_layout or 'strncmp(' in hid_layout:
+              failures.append('HID layout selection must use exact country-code matching')
+
+          hid_init = section(hid, 'void\nusb_hid_init', 'static int usbhid_havechar')
+          if 'keycount = 0;' in hid_init:
+              failures.append('Attaching another HID keyboard must not erase the shared keyboard FIFO')
+          if 'sizeof(usb_hid_keyboard_event_t)' not in hid_init or 'maxpacketsize' not in hid_init:
+              failures.append('HID must reject interrupt endpoints too small for an 8-byte boot report')
+
+          wait_ed = section(ohci, 'wait_for_ed(', 'static void\nohci_free_td_chain')
+          free_ed = section(ohci, 'ohci_free_ed', 'static int\nohci_control')
+          intr_destroy = section(ohci, 'ohci_destroy_intr_queue', '/* read one intr-packet')
+          for name, body in [('wait_for_ed', wait_ed), ('ohci_free_ed', free_ed),
+                             ('ohci_destroy_intr_queue', intr_destroy)]:
+              if re.search(r'&\s*~(?:0x)?3(?:U|UL)?\b', body):
+                  failures.append(f'{name} must clear all four low TD address bits')
+
+          done_queue = section(ohci, 'ohci_process_done_queue', 'int ob_usb_ohci_init')
+          if re.search(r'^\s*int\s+i\s*,\s*j\s*;', done_queue, re.M):
+              failures.append('OHCI done-queue debug counters must not exist unguarded in non-debug builds')
+          if 'CONFIG_DEBUG_USB' not in done_queue:
+              failures.append('OHCI done-queue accounting must be explicitly debug-only')
+
+          if failures:
+              for failure in failures:
+                  print(f'FAIL: {failure}')
+              raise SystemExit(1)
+
+          print('Deep HID/OHCI safety invariants satisfied')

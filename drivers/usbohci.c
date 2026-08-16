@@ -121,13 +121,13 @@ dump_ed (ed_t *cur)
 		 __le32_to_cpu(cur->config) & 0x7F);
 	usb_debug("|   N    | Endpoint Number                 |   [%02ld] |\n",
 		 (__le32_to_cpu(cur->config) & (0xFUL << 7)) >> 7);
-	usb_debug("|   F    | Endpoint Direction              |    [%ld] |\n",
+	usb_debug("|   F    | Endpoint Direction              |    [%ld] |:|\n",
 		 ((__le32_to_cpu(cur->config) & (3UL << 11)) >> 11));
-	usb_debug("|   I    | Endpoint Speed                  |    [%ld] |\n",
+	usb_debug("|   I    | Endpoint Speed                  |    [%ld] |:|\n",
 		 ((__le32_to_cpu(cur->config) & (1UL << 13)) >> 13));
-	usb_debug("|   G    | Skip                            |    [%ld] |\n",
+	usb_debug("|   G    | Skip                            |    [%ld] |:|\n",
 		 ((__le32_to_cpu(cur->config) & (1UL << 14)) >> 14));
-	usb_debug("|        | Format                          |    [%ld] |\n",
+	usb_debug("|        | Format                          |    [%ld] |:|\n",
 		 ((__le32_to_cpu(cur->config) & (1UL << 15)) >> 15));
 	usb_debug("+---------------------------------------------------+\n");
 	usb_debug("| TD Queue Tail Pointer          [0x%08lx]       |\n",
@@ -307,19 +307,35 @@ fail_controller:
 hci_t *
 ohci_pci_init (pci_addr addr)
 {
+	u32 bar0;
 	u32 reg_base;
-	uint16_t cmd;
+	u16 old_cmd;
+	u16 cmd;
+	hci_t *controller;
 
-	cmd = pci_config_read16(addr, PCI_COMMAND);
-	cmd |= PCI_COMMAND_BUS_MASTER;
-	pci_config_write16(addr, PCI_COMMAND, cmd);
+	bar0 = pci_config_read32(addr, PCI_BASE_ADDR_0);
+	/* PCI_COMMAND_IO has the same bit value as BAR0's I/O-space indicator. */
+	if (bar0 == 0 || bar0 == 0xffffffff || (bar0 & PCI_COMMAND_IO)) {
+		usb_debug("Invalid OHCI BAR0: %08x\n", bar0);
+		return NULL;
+	}
 
-	/* regarding OHCI spec, Appendix A, BAR_OHCI register description, Table A-4
-	 * BASE ADDRESS only [31-12] bits. All other usually 0, but not all.
-	 * OHCI mandates MMIO, so bit 0 is clear */
-	reg_base = pci_config_read32 (addr, PCI_BASE_ADDR_0) & 0xfffff000;
+	reg_base = bar0 & 0xfffff000U;
+	if (!reg_base) {
+		usb_debug("OHCI BAR0 has no MMIO base.\n");
+		return NULL;
+	}
 
-	return ohci_init((void *)(unsigned long)reg_base);
+	old_cmd = pci_config_read16(addr, PCI_COMMAND);
+	cmd = old_cmd | PCI_COMMAND_MEMORY | PCI_COMMAND_BUS_MASTER;
+	if (cmd != old_cmd)
+		pci_config_write16(addr, PCI_COMMAND, cmd);
+
+	controller = ohci_init((void *)(unsigned long)reg_base);
+	if (!controller && cmd != old_cmd)
+		pci_config_write16(addr, PCI_COMMAND, old_cmd);
+
+	return controller;
 }
 
 static void
@@ -379,9 +395,12 @@ wait_for_ed(usbdev_t *dev, ed_t *head, int pages)
 			(__le32_to_cpu(((td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~3))->config) & TD_CC_MASK) >> TD_CC_SHIFT);
 		mdelay(1);
 	}
-	if (timeout < 0)
+	if (timeout < 0) {
 		usb_debug("Error: ohci: endpoint "
 			"descriptor processing timed out.\n");
+		ohci_process_done_queue(OHCI_INST(dev->controller), 1);
+		return 1;
+	}
 	/* Clear the done queue. */
 	ohci_process_done_queue(OHCI_INST(dev->controller), 1);
 

@@ -71,7 +71,7 @@ enum { GET_REPORT = 0x1, GET_IDLE = 0x2, GET_PROTOCOL = 0x3, SET_REPORT =
 typedef union {
 	struct {
 		u8 modifiers;
-		u8 repeats;
+		u8 reserved;
 		u8 keys[6];
 	};
 	u8 buffer[8];
@@ -378,11 +378,11 @@ usb_hid_process_keyboard_event(usbhid_inst_t *const inst,
 
 		if (keypress == -1) {
 			/* Debug: Print unknown keys */
-			usb_debug ("usbhid: <%x> %x [ %x %x %x %x %x %x ] %d\n",
-				current->modifiers, current->repeats,
-			current->keys[0], current->keys[1],
-			current->keys[2], current->keys[3],
-			current->keys[4], current->keys[5], i);
+			usb_debug ("usbhid: <%x> [ %x %x %x %x %x %x ] %d\n",
+				current->modifiers,
+				current->keys[0], current->keys[1],
+				current->keys[2], current->keys[3],
+				current->keys[4], current->keys[5], i);
 
 			/* Unknown key? Try next one in the queue */
 			continue;
@@ -407,6 +407,8 @@ usb_hid_poll (usbdev_t *dev)
 
 	while ((buf=dev->controller->poll_intr_queue (HID_INST(dev)->queue))) {
 		memcpy(current.buffer, buf, sizeof(current.buffer));
+		/* Byte 1 of the boot keyboard input report is reserved. */
+		current.reserved = 0;
 		usb_hid_process_keyboard_event(HID_INST(dev), &current);
 		HID_INST(dev)->previous = current;
 	}
@@ -463,8 +465,7 @@ static int usb_hid_set_layout (usbhid_inst_t *inst, const char *country)
 	unsigned int i;
 
 	for (i = 0; i < (unsigned int)(sizeof(keyboard_layouts) / sizeof(keyboard_layouts[0])); i++) {
-		if (strncmp(keyboard_layouts[i].country, country,
-					strlen(keyboard_layouts[i].country)))
+		if (strcmp(keyboard_layouts[i].country, country))
 			continue;
 
 		inst->map = &keyboard_layouts[i];
@@ -554,12 +555,19 @@ usb_hid_init (usbdev_t *dev)
 				return;
 			}
 			HID_INST(dev)->endpoint = &dev->endpoints[i];
+			if (HID_INST(dev)->endpoint->maxpacketsize <
+					(int)sizeof(usb_hid_keyboard_event_t)) {
+				usb_debug("NOTICE: USB HID keyboard interrupt endpoint is too small.\n");
+				usb_detach_device(dev->controller, dev->address);
+				return;
+			}
 			timing = usb_hid_queue_timing(dev);
 			usb_debug ("  found endpoint %x for interrupt-in, polling every %dms\n",
 					i, timing);
-			/* 20 buffers of 8 bytes, using the endpoint's normalized interval. */
+			/* 20 boot-report buffers, using the endpoint's normalized interval. */
 			HID_INST(dev)->queue = dev->controller->create_intr_queue (
-					HID_INST(dev)->endpoint, 8, 20, timing);
+					HID_INST(dev)->endpoint,
+					(int)sizeof(usb_hid_keyboard_event_t), 20, timing);
 			if (!HID_INST(dev)->queue) {
 				usb_debug("NOTICE: could not create USB HID interrupt queue.\n");
 				usb_detach_device(dev->controller, dev->address);
@@ -567,7 +575,6 @@ usb_hid_init (usbdev_t *dev)
 			}
 			// only add here, because we only support boot-keyboard HID devices
 			dev->poll = usb_hid_poll;
-			keycount = 0;
 			usb_debug ("  configuration done.\n");
 			break;
 		}

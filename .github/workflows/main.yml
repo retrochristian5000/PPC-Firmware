@@ -42,6 +42,23 @@ jobs:
           EOF
           done
 
+      - name: Verify PowerPC target C is freestanding
+        run: |
+          set -eu
+          make -C parity-clang/obj-ppc info > ppc-target-info.txt
+          cat ppc-target-info.txt
+          grep -Eq 'Target CFLAGS:.*(^|[[:space:]])-ffreestanding([[:space:]]|$)' \
+            ppc-target-info.txt
+
+          cat > freestanding-library-prototypes.c <<'EOF'
+          typedef unsigned int openbios_size_t;
+          extern openbios_size_t strlen(const char *s);
+          extern void *memcpy(void *dest, const void *src, openbios_size_t count);
+          extern void *memset(void *dest, int c, openbios_size_t count);
+          EOF
+          clang --target=powerpc-none-elf -ffreestanding -Werror \
+            -fsyntax-only freestanding-library-prototypes.c
+
       - name: Build dictionaries with GCC
         run: make -C parity-gcc/obj-ppc V=1 HOSTCC=gcc dictionaries
 

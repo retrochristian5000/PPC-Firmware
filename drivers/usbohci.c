@@ -69,12 +69,15 @@ ohci_alloc_aligned(size_t alignment, size_t size)
 static void
 dump_td (td_t *cur)
 {
+	u32 direction = (__le32_to_cpu(cur->config) & TD_DIRECTION_MASK) >>
+		TD_DIRECTION_SHIFT;
+
 	usb_debug("+---------------------------------------------------+\n");
-	if (((__le32_to_cpu(cur->config) & (3UL << 19)) >> 19) == 0)
+	if (direction == OHCI_SETUP)
 		usb_debug("|..[SETUP]..........................................|\n");
-	else if (((__le32_to_cpu(cur->config) & (3UL << 8)) >> 8) == 2)
+	else if (direction == OHCI_IN)
 		usb_debug("|..[IN].............................................|\n");
-	else if (((__le32_to_cpu(cur->config) & (3UL << 8)) >> 8) == 1)
+	else if (direction == OHCI_OUT)
 		usb_debug("|..[OUT]............................................|\n");
 	else
 		usb_debug("|..[]...............................................|\n");
@@ -85,10 +88,10 @@ dump_td (td_t *cur)
 	usb_debug("|:|   C   | Condition Code               |   [%02ld] |:|\n",
 		 (__le32_to_cpu(cur->config) & (0xFUL << 28)) >> 28);
 	usb_debug("|:|   O   | Direction/PID                |    [%ld] |:|\n",
-		 (__le32_to_cpu(cur->config) & (3UL << 19)) >> 19);
+		 (__le32_to_cpu(cur->config) & TD_DIRECTION_MASK) >> TD_DIRECTION_SHIFT);
 	usb_debug("|:|   N   | Buffer Rounding              |    [%ld] |:|\n",
 		 (__le32_to_cpu(cur->config) & (1UL << 18)) >> 18);
-	usb_debug("|:|   F   | Delay Intterrupt             |    [%ld] |:|\n",
+	usb_debug("|:|   F   | Delay Interrupt              |    [%ld] |:|\n",
 		 (__le32_to_cpu(cur->config) & (7UL << 21)) >> 21);
 	usb_debug("|:|   I   | Data Toggle                  |    [%ld] |:|\n",
 		 (__le32_to_cpu(cur->config) & (3UL << 24)) >> 24);

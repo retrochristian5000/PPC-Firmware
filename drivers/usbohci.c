@@ -396,7 +396,7 @@ static void
 ohci_free_td_chain(td_t *td)
 {
 	while (td) {
-		u32 next = __le32_to_cpu(td->next_td) & ~0x3;
+		u32 next = __le32_to_cpu(td->next_td) & ~0xfU;
 		td_t *next_td = next ? (td_t *)phys_to_virt(next) : NULL;
 
 		free((void *)td);
@@ -713,6 +713,7 @@ struct _intr_queue {
 	struct _intrq_td	*head;
 	struct _intrq_td	*tail;
 	u8			*data;
+	u8			*spare_data;
 	int			reqsize;
 	endpoint_t		*endp;
 	unsigned int		remaining_tds;
@@ -744,7 +745,7 @@ static void
 ohci_free_intr_td_chain(intrq_td_t *td)
 {
 	while (td) {
-		u32 next = __le32_to_cpu(td->td.next_td) & ~0x3;
+		u32 next = __le32_to_cpu(td->td.next_td) & ~0xfU;
 		intrq_td_t *next_td = next ?
 			INTRQ_TD_FROM_TD(phys_to_virt(next)) : NULL;
 
@@ -758,21 +759,31 @@ static void *
 ohci_create_intr_queue(endpoint_t *const ep, const int reqsize,
 		       const int reqcount, const int reqtiming)
 {
-	int i;
+	int i, phase;
+	size_t buffer_count;
+	size_t buffer_size;
 	intrq_td_t *first_td = NULL, *last_td = NULL;
 
 	if (!ep || reqsize <= 0 || reqsize > 4096 || reqcount <= 0 || reqtiming <= 0)
 		return NULL;
+	if (reqtiming > 32 || (reqtiming & (reqtiming - 1)))
+		return NULL;
+
+	buffer_count = (size_t)reqcount + 1; /* (reqcount + 1) active/spare buffers */
+	if (buffer_count > (size_t)-1 / (size_t)reqsize)
+		return NULL;
+	buffer_size = buffer_count * (size_t)reqsize;
 
 	intr_queue_t *intrq = ohci_alloc_aligned(sizeof(ed_t), sizeof(*intrq));
 	if (!intrq)
 		return NULL;
 	memset(intrq, 0, sizeof(*intrq));
-	intrq->data = (u8 *)malloc(reqcount * reqsize);
+	intrq->data = (u8 *)malloc(buffer_size);
 	if (!intrq->data) {
 		free(intrq);
 		return NULL;
 	}
+	intrq->spare_data = intrq->data + (size_t)reqcount * (size_t)reqsize;
 	intrq->reqsize = reqsize;
 	intrq->endp = ep;
 
@@ -815,35 +826,41 @@ ohci_create_intr_queue(endpoint_t *const ep, const int reqsize,
 		(((ep->direction == IN) ? OHCI_IN : OHCI_OUT) << ED_DIR_SHIFT) |
 		(ep->dev->speed ? ED_LOWSPEED : 0) |
 		(ep->maxpacketsize << ED_MPS_SHIFT));
-	intrq->ed.tail_pointer = __cpu_to_le32(virt_to_phys(last_td));
-	intrq->ed.head_pointer = __cpu_to_le32(virt_to_phys(first_td) | (ep->toggle ? ED_TOGGLE : 0));
+	intrq->ed.tail_pointer = __cpu_to_le32(virt_to_phys(&last_td->td));
+	intrq->ed.head_pointer = __cpu_to_le32(virt_to_phys(&first_td->td) | (ep->toggle ? ED_TOGGLE : 0));
 
 #ifdef USB_DEBUG_ED
 	dump_ed((ed_t *)&intrq->ed);
 #endif
-	/* Insert ED into periodic table. */
-	int nothing_placed	= 1;
-	ohci_t *const ohci	= OHCI_INST(ep->dev->controller);
-	const u32 dummy_ptr	= __cpu_to_le32(virt_to_phys(ohci->periodic_ed));
-	for (i = 0; i < 32; i += reqtiming) {
-		/* Advance to the next free position. */
-		while ((i < 32) && (ohci->hcca->HccaInterruptTable[i] != dummy_ptr)) ++i;
-		if (i < 32) {
-			usb_debug("Placed endpoint %lx to %d\n", virt_to_phys(&intrq->ed), i);
-			ohci->hcca->HccaInterruptTable[i] = __cpu_to_le32(virt_to_phys(&intrq->ed));
-			nothing_placed = 0;
+	/* Insert the ED at one consistent phase in the 32-frame table. */
+	ohci_t *const ohci = OHCI_INST(ep->dev->controller);
+	const u32 dummy_ptr = __cpu_to_le32(virt_to_phys(ohci->periodic_ed));
+	for (phase = 0; phase < reqtiming; ++phase) {
+		int phase_free = 1;
+
+		for (i = phase; i < 32; i += reqtiming) {
+			if (ohci->hcca->HccaInterruptTable[i] != dummy_ptr) {
+				phase_free = 0;
+				break;
+			}
 		}
-	}
-	if (nothing_placed) {
-		usb_debug("Error: Failed to place ohci interrupt endpoint "
-			"descriptor into periodic table: no space left\n");
-		ohci_free_intr_td_chain(first_td);
-		free(intrq->data);
-		free(intrq);
-		return NULL;
+		if (!phase_free)
+			continue;
+
+		for (i = phase; i < 32; i += reqtiming) {
+			usb_debug("Placed endpoint %lx to %d\n", virt_to_phys(&intrq->ed), i);
+			ohci->hcca->HccaInterruptTable[i] =
+				__cpu_to_le32(virt_to_phys(&intrq->ed));
+		}
+		return intrq;
 	}
 
-	return intrq;
+	usb_debug("Error: Failed to place ohci interrupt endpoint "
+		"descriptor into periodic table: no phase available\n");
+	ohci_free_intr_td_chain(first_td);
+	free(intrq->data);
+	free(intrq);
+	return NULL;
 }
 
 /* remove queue from device schedule, dropping all data that came in */
@@ -859,8 +876,10 @@ ohci_destroy_intr_queue(endpoint_t *const ep, void *const q_)
 	/* Remove interrupt queue from periodic table. */
 	ohci_t *const ohci	= OHCI_INST(ep->dev->controller);
 	for (i=0; i < 32; ++i) {
-		if (ohci->hcca->HccaInterruptTable[i] == __cpu_to_le32(virt_to_phys(intrq)))
-			ohci->hcca->HccaInterruptTable[i] = __cpu_to_le32(virt_to_phys(ohci->periodic_ed));
+		if (ohci->hcca->HccaInterruptTable[i] ==
+				__cpu_to_le32(virt_to_phys(&intrq->ed)))
+			ohci->hcca->HccaInterruptTable[i] =
+				__cpu_to_le32(virt_to_phys(ohci->periodic_ed));
 	}
 	/* Wait for frame to finish. */
 	mdelay(1);
@@ -881,9 +900,10 @@ ohci_destroy_intr_queue(endpoint_t *const ep, void *const q_)
 	}
 	/* Free final, dummy TD. */
 	free(phys_to_virt(__le32_to_cpu(intrq->ed.head_pointer) & ~0x3));
-	/* Free data buffer. */
+	/* Free data buffer, including the spare slot. */
 	free(intrq->data);
 	intrq->data = NULL;
+	intrq->spare_data = NULL;
 
 	/* Free TDs already fetched from the done queue. */
 	while (intrq->head) {
@@ -924,13 +944,15 @@ ohci_poll_intr_queue(void *const q_)
 		if (!intrq->head)
 			intrq->tail = NULL;
 
-		/* Return data buffer of this TD. */
+		/* Hand the completed buffer to software. */
 		data = cur_td->data;
 
-		/* Requeue this TD (i.e. copy to dummy and requeue as dummy). */
+		/* Requeue with the spare buffer so returned data is no longer DMA-owned. */
 		intrq_td_t *const dummy_td =
 			INTRQ_TD_FROM_TD(phys_to_virt(__le32_to_cpu(intrq->ed.tail_pointer)));
-		ohci_fill_intrq_td(dummy_td, intrq, data);
+		ohci_fill_intrq_td(dummy_td, intrq, intrq->spare_data);
+		intrq->spare_data = data;
+
 		/* Reset all but intrq pointer (i.e. init as dummy). */
 		memset(cur_td, 0, sizeof(*cur_td));
 		cur_td->intrq = intrq;
@@ -953,9 +975,8 @@ ohci_process_done_queue(ohci_t *const ohci, const int spew_debug)
 	/* Check if done head has been written. */
 	if (!(READ_OPREG(ohci, HcInterruptStatus) & WritebackDoneHead))
 		return;
-	/* Fetch current done head.
-	   Lsb is only interesting for hw interrupts. */
-	u32 phys_done_queue = __le32_to_cpu(ohci->hcca->HccaDoneHead) & ~1;
+	/* Fetch current done head. Low bits are status/alignment, not address. */
+	u32 phys_done_queue = __le32_to_cpu(ohci->hcca->HccaDoneHead) & ~0xfU;
 	/* Tell host controller, he may overwrite the done head pointer. */
 	ohci->opreg->HcInterruptStatus = __cpu_to_le32(WritebackDoneHead);
 
@@ -965,7 +986,7 @@ ohci_process_done_queue(ohci_t *const ohci, const int spew_debug)
 		td_t *const done_td = (td_t *)phys_to_virt(phys_done_queue);
 
 		/* Advance pointer to next TD. */
-		phys_done_queue = __le32_to_cpu(done_td->next_td);
+		phys_done_queue = __le32_to_cpu(done_td->next_td) & ~0xfU;
 
 		switch (__le32_to_cpu(done_td->config) & TD_QUEUETYPE_MASK) {
 		case TD_QUEUETYPE_ASYNC:

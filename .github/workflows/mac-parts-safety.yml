@@ -23,6 +23,7 @@ jobs:
             echo 'error: mac-parts must not treat fixed-width APM fields as unbounded C strings' >&2
             exit 1
           fi
+          grep -q 'value_len == field_size || field\[value_len\]' packages/mac-parts.c
 
       - name: Require bounded selected-partition formatting
         run: |

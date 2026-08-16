@@ -58,7 +58,7 @@ jobs:
 
           wait_ed = section(ohci, 'wait_for_ed(', 'static void\nohci_free_td_chain')
           free_ed = section(ohci, 'ohci_free_ed', 'static int\nohci_control')
-          intr_destroy = section(ohci, 'ohci_destroy_intr_queue', '/* read one intr-packet')
+          intr_destroy = section(ohci, 'static void\nohci_destroy_intr_queue', '/* read one intr-packet')
           for name, body in [('wait_for_ed', wait_ed), ('ohci_free_ed', free_ed),
                              ('ohci_destroy_intr_queue', intr_destroy)]:
               if re.search(r'&\s*~(?:0x)?3(?:U|UL)?\b', body):

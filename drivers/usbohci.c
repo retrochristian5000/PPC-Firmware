@@ -121,13 +121,13 @@ dump_ed (ed_t *cur)
 		 __le32_to_cpu(cur->config) & 0x7F);
 	usb_debug("|   N    | Endpoint Number                 |   [%02ld] |\n",
 		 (__le32_to_cpu(cur->config) & (0xFUL << 7)) >> 7);
-	usb_debug("|   F    | Endpoint Direction              |    [%ld] |:|\n",
+	usb_debug("|   F    | Endpoint Direction              |    [%ld] |\n",
 		 ((__le32_to_cpu(cur->config) & (3UL << 11)) >> 11));
-	usb_debug("|   I    | Endpoint Speed                  |    [%ld] |:|\n",
+	usb_debug("|   I    | Endpoint Speed                  |    [%ld] |\n",
 		 ((__le32_to_cpu(cur->config) & (1UL << 13)) >> 13));
-	usb_debug("|   G    | Skip                            |    [%ld] |:|\n",
+	usb_debug("|   G    | Skip                            |    [%ld] |\n",
 		 ((__le32_to_cpu(cur->config) & (1UL << 14)) >> 14));
-	usb_debug("|        | Format                          |    [%ld] |:|\n",
+	usb_debug("|        | Format                          |    [%ld] |\n",
 		 ((__le32_to_cpu(cur->config) & (1UL << 15)) >> 15));
 	usb_debug("+---------------------------------------------------+\n");
 	usb_debug("| TD Queue Tail Pointer          [0x%08lx]       |\n",

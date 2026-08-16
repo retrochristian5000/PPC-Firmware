@@ -42,8 +42,22 @@ typedef struct {
 
 DECLARE_NODE( macparts, INSTALL_OPEN, sizeof(macparts_info_t), "+/packages/mac-parts" );
 
-#define SEEK( pos )		({ DPUSH(pos); call_parent(di->seek_xt); POP(); })
-#define READ( buf, size )	({ PUSH(pointer2cell(buf)); PUSH(size); call_parent(di->read_xt); POP(); })
+static cell
+macparts_parent_seek(macparts_info_t *di, ducell pos)
+{
+	DPUSH(pos);
+	call_parent(di->seek_xt);
+	return (cell)POP();
+}
+
+static cell
+macparts_parent_read(macparts_info_t *di, void *buf, size_t size)
+{
+	PUSH(pointer2cell(buf));
+	PUSH((ucell)size);
+	call_parent(di->read_xt);
+	return (cell)POP();
+}
 
 static int
 macparts_field_equals(const char *field, size_t field_size, const char *value)
@@ -146,9 +160,9 @@ macparts_open( macparts_info_t *di )
 	if (!di->read_xt || !di->seek_xt)
 		goto out;
 
-	if (SEEK( 0 ) != 0)
+	if (macparts_parent_seek(di, 0) != 0)
 		goto out;
-	if( READ(&dmap, sizeof(dmap)) != sizeof(dmap) )
+	if (macparts_parent_read(di, &dmap, sizeof(dmap)) != sizeof(dmap))
 		goto out;
 
 	/* partition maps might support multiple block sizes; in this case,
@@ -157,15 +171,15 @@ macparts_open( macparts_info_t *di )
 	bs = __be16_to_cpu(dmap.sbBlockSize);
 	if (!bs)
 		goto out;
-	if( bs != 512 ) {
-		if (SEEK( 512 ) == 0 &&
-		    READ( &par, sizeof(par) ) == sizeof(par) &&
+	if (bs != 512) {
+		if (macparts_parent_seek(di, 512) == 0 &&
+		    macparts_parent_read(di, &par, sizeof(par)) == sizeof(par) &&
 		    __be16_to_cpu(par.pmSig) == DESC_PART_SIGNATURE)
 			bs = 512;
 	}
-	if (SEEK( bs ) != 0)
+	if (macparts_parent_seek(di, (ducell)bs) != 0)
 		goto out;
-	if( READ(&par, sizeof(par)) != sizeof(par) )
+	if (macparts_parent_read(di, &par, sizeof(par)) != sizeof(par))
 		goto out;
         if (__be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE)
 		goto out;
@@ -196,9 +210,9 @@ macparts_open( macparts_info_t *di )
 
 		/* No partition was explicitly requested so let's find a suitable partition... */
 		for (i = 1; i <= __be32_to_cpu(par.pmMapBlkCnt); i++) {
-			if (SEEK( (ducell)bs * i ) != 0)
+			if (macparts_parent_seek(di, (ducell)bs * i) != 0)
 				break;
-			if (READ( &par, sizeof(par) ) != sizeof(par))
+			if (macparts_parent_read(di, &par, sizeof(par)) != sizeof(par))
 				break;
 			if ( __be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE ||
                             !__be32_to_cpu(par.pmPartBlkCnt) )
@@ -265,8 +279,8 @@ macparts_open( macparts_info_t *di )
 	    
 	    DPRINTF("Selected partition %d\n", parnum);
 	    
-	    if (SEEK( (ducell)bs * parnum ) != 0 ||
-		READ( &par, sizeof(par) ) != sizeof(par) ||
+	    if (macparts_parent_seek(di, (ducell)bs * parnum) != 0 ||
+		macparts_parent_read(di, &par, sizeof(par)) != sizeof(par) ||
 		__be16_to_cpu(par.pmSig) != DESC_PART_SIGNATURE) {
 		ret = 0;
 		continue;

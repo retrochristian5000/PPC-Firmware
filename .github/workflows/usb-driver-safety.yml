@@ -1,0 +1,80 @@
+name: USB driver safety
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'drivers/usb.c'
+      - 'drivers/usb.h'
+      - 'drivers/usbhid.c'
+      - 'drivers/usbohci.c'
+      - 'drivers/usbohci_rh.c'
+      - '.github/workflows/usb-driver-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  usb-driver-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Check USB safety invariants
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          failures = []
+
+          usb = Path('drivers/usb.c').read_text()
+          hid = Path('drivers/usbhid.c').read_text()
+          ohci = Path('drivers/usbohci.c').read_text()
+          rh = Path('drivers/usbohci_rh.c').read_text()
+
+          generic = usb[usb.index('generic_set_address'):usb.index('/* Normalize bInterval')]
+          if 'if (adr < 0)' not in generic or generic.index('if (adr < 0)') > generic.index('init_device_entry(controller, adr)'):
+              failures.append('generic_set_address must reject address exhaustion before indexing devices[]')
+
+          descriptor = usb[usb.index('get_descriptor'):usb.index('set_configuration')]
+          if 'if (!result)' not in descriptor and 'if (result == NULL)' not in descriptor:
+              failures.append('get_descriptor must check allocation failure before memset')
+
+          address = usb[usb.index('static int\nset_address'):usb.index('usb_detach_device')]
+          if 'if (!dev->descriptor)' not in address:
+              failures.append('set_address must reject a failed device descriptor fetch')
+          if 'if (!dev->configuration)' not in address:
+              failures.append('set_address must reject a failed configuration descriptor fetch')
+          if 'ARRAY_SIZE(dev->endpoints)' not in address:
+              failures.append('endpoint parsing must be bounded by the endpoint array size')
+
+          if '<= dev->num_endp' in hid:
+              failures.append('HID endpoint scans must not step past num_endp')
+          if 'sizeof(keybuffer[0])' not in hid:
+              failures.append('HID FIFO memmove must move short entries, not byte counts')
+          if 'if (i == dev->num_endp)' not in hid:
+              failures.append('HID init must reject a missing interrupt-IN endpoint')
+
+          const_outputs = re.findall(r'\b(?:td_t|ed_t|intr_queue_t|intrq_td_t) \*const \w+;\s*\n\s*ofmem_posix_memalign', ohci)
+          if const_outputs:
+              failures.append('OHCI must not write allocation results through const pointer objects')
+          if '__le32_to_cpu(virt_to_phys' in ohci:
+              failures.append('OHCI hardware pointer stores must use cpu_to_le32, not le32_to_cpu')
+          if 'if (dalen > 0)' not in ohci:
+              failures.append('OHCI control transfers must guard zero-length data pointer arithmetic')
+          if 'if (size > 0)' not in ohci:
+              failures.append('OHCI bulk transfers must guard zero-length data pointer arithmetic')
+
+          if 'free(RH_INST (dev)->port)' not in rh and 'free(RH_INST(dev)->port)' not in rh:
+              failures.append('OHCI root-hub destroy must free the port array')
+
+          if failures:
+              for failure in failures:
+                  print(f'FAIL: {failure}')
+              raise SystemExit(1)
+
+          print('USB driver safety invariants satisfied')

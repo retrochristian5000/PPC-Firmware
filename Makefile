@@ -17,8 +17,12 @@ clean:
 
 build: start-build
 	@for dir in $(ODIRS); do \
-		$(MAKE) -C $$dir > $$dir/build.log 2>&1 && echo "ok." || \
-		( echo "error:"; tail -15 $$dir/build.log; exit 1 ) \
+		if ! $(MAKE) -C $$dir > $$dir/build.log 2>&1; then \
+			echo "error:"; \
+			tail -15 $$dir/build.log; \
+			exit 1; \
+		fi; \
+		echo "ok."; \
 	done
 
 SUBDIR_RULES=$(patsubst %,subdir-%, $(TARGETS))

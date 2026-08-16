@@ -172,7 +172,6 @@ void ofmem_free( void *ptr )
 		return;
 
 	d = (alloc_desc_t*)((char *)ptr - sizeof(alloc_desc_t));
-	d->next = ofmem->mfree;
 
 	/* insert in the (sorted) freelist */
 	for( pp=&ofmem->mfree; *pp && (**pp).size < d->size ; pp = &(**pp).next ) {
@@ -184,7 +183,7 @@ void ofmem_free( void *ptr )
 
 void* ofmem_realloc( void *ptr, size_t size )
 {
-	alloc_desc_t *d = (alloc_desc_t*)((char *)ptr - sizeof(alloc_desc_t));
+	alloc_desc_t *d;
 	char *p;
 
 	if( !ptr )
@@ -193,7 +192,12 @@ void* ofmem_realloc( void *ptr, size_t size )
 		free( ptr );
 		return NULL;
 	}
+
+	d = (alloc_desc_t*)((char *)ptr - sizeof(alloc_desc_t));
 	p = malloc( size );
+	if( !p )
+		return NULL;
+
 	memcpy( p, ptr, MIN(d->size - sizeof(alloc_desc_t),size) );
 	free( ptr );
 	return p;
@@ -205,7 +209,6 @@ void* ofmem_realloc( void *ptr, size_t size )
 /************************************************************************/
 
 static int trans_prop_size = 0, phys_range_prop_size = 0, virt_range_prop_size = 0;
-static int trans_prop_used = 0, phys_range_prop_used = 0, virt_range_prop_used = 0;
 static ucell *trans_prop, *phys_range_prop, *virt_range_prop;
 
 static void
@@ -244,18 +247,23 @@ static void ofmem_update_mmu_translations( void )
 	prop_used = ncells * sizeof(ucell) * ofmem_arch_get_translation_entry_size();
 
 	if (prop_used > trans_prop_size) {
+		ucell *new_prop;
 
 		/* The property doesn't fit within the existing space, so keep doubling it
 		   until it does */
 		prop_size = trans_prop_size;
 		while (prop_size < prop_used) {
 			prop_size *= 2;
-		} 
+		}
 
-		/* Allocate the new memory and copy all of the existing information across */
-		trans_prop = realloc(trans_prop, prop_size);
+		/* Allocate the new memory and keep the old property intact on failure. */
+		new_prop = realloc(trans_prop, prop_size);
+		if (new_prop == NULL) {
+			printk("Unable to allocate memory for translations property!\n");
+			return;
+		}
+		trans_prop = new_prop;
 		trans_prop_size = prop_size;
-		trans_prop_used = prop_used;
 	}
 
 	if (trans_prop == NULL) {
@@ -277,14 +285,14 @@ static void ofmem_update_mmu_translations( void )
 
 
 static void ofmem_update_memory_available( phandle_t ph, range_t *range,
-		ucell **mem_prop, int *mem_prop_size, int *mem_prop_used, u64 top_address )
+		ucell **mem_prop, int *mem_prop_size, u64 top_address )
 {
 	range_t *r;
 	int ncells, prop_used, prop_size;
 	phys_addr_t start;
 	ucell size, *prop;
 
-	if (s_phandle_memory == 0)
+	if (ph == 0)
 		return;
 
 	/* count phys_range list entries */
@@ -296,6 +304,7 @@ static void ofmem_update_memory_available( phandle_t ph, range_t *range,
 	prop_used = (ncells + 1) * sizeof(ucell) * ofmem_arch_get_available_entry_size(ph) + 1;
 
 	if (prop_used > *mem_prop_size) {
+		ucell *new_prop;
 
 		/* The property doesn't fit within the existing space, so keep doubling it
 		   until it does */
@@ -304,10 +313,14 @@ static void ofmem_update_memory_available( phandle_t ph, range_t *range,
 			prop_size *= 2;
 		}
 
-		/* Allocate the new memory and copy all of the existing information across */
-		*mem_prop = realloc(*mem_prop, prop_size);
+		/* Allocate the new memory and keep the old property intact on failure. */
+		new_prop = realloc(*mem_prop, prop_size);
+		if (new_prop == NULL) {
+			printk("Unable to allocate memory for memory range property!\n");
+			return;
+		}
+		*mem_prop = new_prop;
 		*mem_prop_size = prop_size;
-		*mem_prop_used = prop_used;
 	}
 
 	if (*mem_prop == NULL) {
@@ -347,10 +360,10 @@ static void ofmem_update_translations( void )
 {
 	ofmem_t *ofmem = ofmem_arch_get_private();
 
-	ofmem_update_memory_available(s_phandle_memory, ofmem->phys_range, 
-			&phys_range_prop, &phys_range_prop_size, &phys_range_prop_used, get_ram_size() - 1);
-	ofmem_update_memory_available(s_phandle_mmu, ofmem->virt_range, 
-			&virt_range_prop, &virt_range_prop_size, &virt_range_prop_used, ofmem_arch_get_virt_top() - 1);
+	ofmem_update_memory_available(s_phandle_memory, ofmem->phys_range,
+			&phys_range_prop, &phys_range_prop_size, get_ram_size() - 1);
+	ofmem_update_memory_available(s_phandle_mmu, ofmem->virt_range,
+			&virt_range_prop, &virt_range_prop_size, ofmem_arch_get_virt_top() - 1);
 	ofmem_update_mmu_translations();
 }
 
@@ -850,6 +863,8 @@ ucell ofmem_map_io( phys_addr_t phys, ucell size )
 	phys &= ~(PAGE_SIZE - 1);
 
 	virt = ofmem_claim_io(-1, npages * PAGE_SIZE, PAGE_SIZE);
+	if (virt == (ucell)-1)
+		return -1;
 
 	mode = ofmem_arch_io_translation_mode(off);
 

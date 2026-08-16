@@ -379,9 +379,10 @@ wait_for_ed(usbdev_t *dev, ed_t *head, int pages)
 	 *         give 2s per TD (2 pages) plus another 2s for now
 	 */
 	int timeout = pages*1000 + 2000;
-	while (((__le32_to_cpu(head->head_pointer) & ~3) != __le32_to_cpu(head->tail_pointer)) &&
+	while (((__le32_to_cpu(head->head_pointer) & ~0xfU) !=
+		(__le32_to_cpu(head->tail_pointer) & ~0xfU)) &&
 		!(__le32_to_cpu(head->head_pointer) & 1) &&
-		((__le32_to_cpu((((td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~3)))->config)
+		((__le32_to_cpu((((td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~0xfU)))->config)
 		& TD_CC_MASK) >= TD_CC_NOACCESS) && timeout--) {
 		/* don't log every ms */
 		if (!(timeout % 100))
@@ -390,9 +391,9 @@ wait_for_ed(usbdev_t *dev, ed_t *head, int pages)
 			  READ_OPREG(OHCI_INST(dev->controller), HcControl),
 			  READ_OPREG(OHCI_INST(dev->controller), HcCommandStatus),
 			__le32_to_cpu(head->head_pointer),
-			__le32_to_cpu(((td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~3))->next_td),
+			__le32_to_cpu(((td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~0xfU))->next_td),
 			__le32_to_cpu(head->tail_pointer),
-			(__le32_to_cpu(((td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~3))->config) & TD_CC_MASK) >> TD_CC_SHIFT);
+			(__le32_to_cpu(((td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~0xfU))->config) & TD_CC_MASK) >> TD_CC_SHIFT);
 		mdelay(1);
 	}
 	if (timeout < 0) {
@@ -427,10 +428,11 @@ static void
 ohci_free_ed (ed_t *const head)
 {
 	/* In case the transfer canceled, we have to free unprocessed TDs. */
-	while ((__le32_to_cpu(head->head_pointer) & ~0x3) != __le32_to_cpu(head->tail_pointer)) {
+	while ((__le32_to_cpu(head->head_pointer) & ~0xfU) !=
+			(__le32_to_cpu(head->tail_pointer) & ~0xfU)) {
 		/* Save current TD pointer. */
 		td_t *const cur_td =
-			(td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~0x3);
+			(td_t*)phys_to_virt(__le32_to_cpu(head->head_pointer) & ~0xfU);
 		/* Advance head pointer. */
 		head->head_pointer = cur_td->next_td;
 		/* Free current TD. */
@@ -438,8 +440,9 @@ ohci_free_ed (ed_t *const head)
 	}
 
 	/* Always free the dummy TD */
-	if ((__le32_to_cpu(head->head_pointer) & ~0x3) == __le32_to_cpu(head->tail_pointer))
-		free(phys_to_virt(__le32_to_cpu(head->head_pointer) & ~0x3));
+	if ((__le32_to_cpu(head->head_pointer) & ~0xfU) ==
+			(__le32_to_cpu(head->tail_pointer) & ~0xfU))
+		free(phys_to_virt(__le32_to_cpu(head->head_pointer) & ~0xfU));
 	/* and the ED. */
 	free((void *)head);
 }
@@ -910,15 +913,17 @@ ohci_destroy_intr_queue(endpoint_t *const ep, void *const q_)
 	ep->toggle = __le32_to_cpu(intrq->ed.head_pointer) & ED_TOGGLE;
 
 	/* Free unprocessed TDs. */
-	while ((__le32_to_cpu(intrq->ed.head_pointer) & ~0x3) != __le32_to_cpu(intrq->ed.tail_pointer)) {
-		td_t *const cur_td = (td_t *)phys_to_virt(__le32_to_cpu(intrq->ed.head_pointer) & ~0x3);
+	while ((__le32_to_cpu(intrq->ed.head_pointer) & ~0xfU) !=
+			(__le32_to_cpu(intrq->ed.tail_pointer) & ~0xfU)) {
+		td_t *const cur_td = (td_t *)phys_to_virt(
+				__le32_to_cpu(intrq->ed.head_pointer) & ~0xfU);
 		intrq->ed.head_pointer = cur_td->next_td;
 		free(INTRQ_TD_FROM_TD(cur_td));
 		if (intrq->remaining_tds)
 			--intrq->remaining_tds;
 	}
 	/* Free final, dummy TD. */
-	free(phys_to_virt(__le32_to_cpu(intrq->ed.head_pointer) & ~0x3));
+	free(phys_to_virt(__le32_to_cpu(intrq->ed.head_pointer) & ~0xfU));
 	/* Free data buffer, including the spare slot. */
 	free(intrq->data);
 	intrq->data = NULL;
@@ -995,20 +1000,23 @@ ohci_poll_intr_queue(void *const q_)
 static void
 ohci_process_done_queue(ohci_t *const ohci, const int spew_debug)
 {
-	int i, j;
-
 	/* Temporary queue of interrupt queue TDs (to reverse order). */
 	intrq_td_t *temp_tdq = NULL;
+	u32 phys_done_queue;
+#ifdef CONFIG_DEBUG_USB
+	int i = 0, j = 0;
+#else
+	(void)spew_debug;
+#endif
 
 	/* Check if done head has been written. */
 	if (!(READ_OPREG(ohci, HcInterruptStatus) & WritebackDoneHead))
 		return;
 	/* Fetch current done head. Low bits are status/alignment, not address. */
-	u32 phys_done_queue = __le32_to_cpu(ohci->hcca->HccaDoneHead) & ~0xfU;
+	phys_done_queue = __le32_to_cpu(ohci->hcca->HccaDoneHead) & ~0xfU;
 	/* Tell host controller, he may overwrite the done head pointer. */
 	ohci->opreg->HcInterruptStatus = __cpu_to_le32(WritebackDoneHead);
 
-	i = 0;
 	/* Process done queue (it's in reversed order). */
 	while (phys_done_queue) {
 		td_t *const done_td = (td_t *)phys_to_virt(phys_done_queue);
@@ -1047,12 +1055,15 @@ ohci_process_done_queue(ohci_t *const ohci, const int spew_debug)
 		default:
 			break;
 		}
+#ifdef CONFIG_DEBUG_USB
 		++i;
+#endif
 	}
+#ifdef CONFIG_DEBUG_USB
 	if (spew_debug)
 		usb_debug("Processed %d done TDs.\n", i);
+#endif
 
-	j = 0;
 	/* Process interrupt queue TDs in right order. */
 	while (temp_tdq) {
 		/* Save pointer of current TD and advance. */
@@ -1072,10 +1083,14 @@ ohci_process_done_queue(ohci_t *const ohci, const int spew_debug)
 		}
 		/* It's always the last element. */
 		cur_td->next = NULL;
+#ifdef CONFIG_DEBUG_USB
 		++j;
+#endif
 	}
+#ifdef CONFIG_DEBUG_USB
 	if (spew_debug)
 		usb_debug("processed %d done tds, %d intr tds thereof.\n", i, j);
+#endif
 }
 
 int ob_usb_ohci_init (const char *path, uint32_t addr)

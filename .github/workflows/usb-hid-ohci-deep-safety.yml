@@ -5,6 +5,7 @@ on:
     branches:
       - master
     paths:
+      - 'Makefile'
       - 'drivers/usbhid.c'
       - 'drivers/usbohci.c'
       - 'drivers/usbohci_private.h'
@@ -37,6 +38,7 @@ jobs:
           hid = Path('drivers/usbhid.c').read_text()
           ohci = Path('drivers/usbohci.c').read_text()
           ohci_private = Path('drivers/usbohci_private.h').read_text()
+          makefile = Path('Makefile').read_text()
 
           hid_event_type = section(hid, 'typedef union {', '} usb_hid_keyboard_event_t;')
           if 'u8 reserved;' not in hid_event_type or 'u8 repeats;' in hid_event_type:
@@ -86,6 +88,18 @@ jobs:
               failures.append('OHCI interrupt teardown must not rely on a blind one-millisecond delay')
           if 'avoid freeing DMA-owned memory' not in intr_destroy:
               failures.append('OHCI frame-sync failure must preserve DMA-owned queue memory')
+
+          init_fail = section(ohci, 'fail_periodic:', 'fail_hcca:')
+          if 'free(periodic_ed);' in init_fail:
+              failures.append('OHCI init cleanup must not discard the volatile qualifier when freeing periodic_ed')
+          if 'free((void *)periodic_ed);' not in init_fail:
+              failures.append('OHCI init cleanup must explicitly cast the volatile ED for free()')
+
+          build_rule = section(makefile, 'build: start-build', '\n\nSUBDIR_RULES')
+          if 'if ! $(MAKE) -C $$dir' not in build_rule or 'exit 1;' not in build_rule:
+              failures.append('Top-level build must propagate any per-architecture make failure')
+          if re.search(r'\|\|\s*\\\n\s*\(.*exit 1.*\)', build_rule, re.S):
+              failures.append('Top-level build must not hide a failing sub-make inside a subshell and continue')
 
           if failures:
               for failure in failures:

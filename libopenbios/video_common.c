@@ -140,6 +140,7 @@ video_invert_rect( void )
 				} else if (*p == (uint16_t)bgcolor) {
 					*p++ = fgcolor;
 				}
+			}
 		} else {
 			char *p = (char *)(pp + x);
 

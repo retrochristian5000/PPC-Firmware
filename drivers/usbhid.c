@@ -42,13 +42,13 @@
 DECLARE_UNNAMED_NODE(usb_kbd, 0, sizeof(int));
 
 static void
-keyboard_open(int *idx)
+keyboard_open(__attribute__((unused)) int *idx)
 {
 	RET(-1);
 }
 
 static void
-keyboard_close(int *idx)
+keyboard_close(__attribute__((unused)) int *idx)
 {
 }
 
@@ -91,9 +91,12 @@ typedef struct {
 static void
 usb_hid_destroy (usbdev_t *dev)
 {
+	if (!dev->data)
+		return;
+
 	if (HID_INST(dev)->queue) {
 		int i;
-		for (i = 0; i <= dev->num_endp; i++) {
+		for (i = 0; i < dev->num_endp; i++) {
 			if (dev->endpoints[i].endpoint == 0)
 				continue;
 			if (dev->endpoints[i].type != INTERRUPT)
@@ -102,11 +105,14 @@ usb_hid_destroy (usbdev_t *dev)
 				continue;
 			break;
 		}
-		dev->controller->destroy_intr_queue(
-				&dev->endpoints[i], HID_INST(dev)->queue);
+		if (i < dev->num_endp) {
+			dev->controller->destroy_intr_queue(
+					&dev->endpoints[i], HID_INST(dev)->queue);
+		}
 		HID_INST(dev)->queue = NULL;
 	}
 	free (dev->data);
+	dev->data = NULL;
 }
 
 /* keybuffer is global to all USB keyboards */
@@ -114,7 +120,7 @@ static int keycount;
 #define KEYBOARD_BUFFER_SIZE 16
 static short keybuffer[KEYBOARD_BUFFER_SIZE];
 
-const char *countries[36][2] = {
+static const char *const countries[36][2] = {
 	{ "unknown", "us" },
 	{ "Arabic", "ae" },
 	{ "Belgian", "be" },
@@ -230,7 +236,7 @@ static const struct layout_maps keyboard_layouts[] = {
 	KEY_BREAK, KEY_IC, KEY_HOME, KEY_PPAGE, KEY_DC, KEY_END, KEY_NPAGE, KEY_RIGHT,
 	/* 50 */
 	KEY_LEFT, KEY_DOWN, KEY_UP, -1 /*NumLck*/, '/', '*', '-' /* = ? */, '+',
-	KEY_ENTER, KEY_END, KEY_DOWN, KEY_NPAGE, KEY_LEFT, -1, KEY_RIGHT, KEY_HOME,
+	KEY_ENTER, KEY_END, KEY_NPAGE, KEY_LEFT, -1, KEY_RIGHT, KEY_HOME,
 	/* 60 */
 	KEY_UP, KEY_PPAGE, -1, KEY_DC, -1 /* < > | */, -1 /* Win Key Right */, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1,
@@ -345,6 +351,8 @@ usb_hid_process_keyboard_event(usbhid_inst_t *const inst,
 		// No more keys? skip
 		if (current->keys[i] == 0)
 			return;
+		if (current->keys[i] >= 0x80)
+			continue;
 
 		for (j=0; j<6; j++) {
 			if (current->keys[i] == previous->keys[j]) {
@@ -395,8 +403,11 @@ usb_hid_poll (usbdev_t *dev)
 	usb_hid_keyboard_event_t current;
 	const u8 *buf;
 
+	if (!dev->data || !HID_INST(dev)->queue)
+		return;
+
 	while ((buf=dev->controller->poll_intr_queue (HID_INST(dev)->queue))) {
-		memcpy(&current.buffer, buf, 8);
+		memcpy(current.buffer, buf, sizeof(current.buffer));
 		usb_hid_process_keyboard_event(HID_INST(dev), &current);
 		HID_INST(dev)->previous = current;
 	}
@@ -433,9 +444,9 @@ usb_hid_set_protocol (usbdev_t *dev, interface_descriptor_t *interface, hid_prot
 static int usb_hid_set_layout (const char *country)
 {
 	/* FIXME should be per keyboard */
-	int i;
+	unsigned int i;
 
-	for (i=0; i<sizeof(keyboard_layouts)/sizeof(keyboard_layouts[0]); i++) {
+	for (i = 0; i < (unsigned int)(sizeof(keyboard_layouts) / sizeof(keyboard_layouts[0])); i++) {
 		if (strncmp(keyboard_layouts[i].country, country,
 					strlen(keyboard_layouts[i].country)))
 			continue;
@@ -446,8 +457,7 @@ static int usb_hid_set_layout (const char *country)
 		return 0;
 	}
 
-	usb_debug("  Keyboard layout '%s' not found, using '%s'\n",
-			country, map->country);
+	usb_debug("  Keyboard layout '%s' not found\n", country);
 
 	/* Nothing found, not changed */
 	return -1;
@@ -462,17 +472,21 @@ usb_hid_init (usbdev_t *dev)
 	if (interface->bInterfaceSubClass == hid_subclass_boot) {
 		u8 countrycode = 0;
 		usb_debug ("  supports boot interface..\n");
+#ifdef CONFIG_DEBUG_USB
 		usb_debug ("  it's a %s\n",
-			boot_protos[interface->bInterfaceProtocol]);
+			(interface->bInterfaceProtocol < 3) ?
+			boot_protos[interface->bInterfaceProtocol] : "unknown");
+#endif
 		switch (interface->bInterfaceProtocol) {
-		case hid_boot_proto_keyboard:
+		case hid_boot_proto_keyboard: {
+			int i;
+
 			dev->data = malloc (sizeof (usbhid_inst_t));
 			if (!dev->data) {
 				printk("Not enough memory for USB HID device.\n");
 				return;
-                        }
-			memset(&HID_INST(dev)->previous, 0x00,
-			       sizeof(HID_INST(dev)->previous));
+			}
+			memset(dev->data, 0, sizeof(usbhid_inst_t));
 			usb_debug ("  configuring...\n");
 			usb_hid_set_protocol(dev, interface, hid_proto_boot);
 			usb_hid_set_idle(dev, interface, KEYBOARD_REPEAT_MS);
@@ -492,13 +506,10 @@ usb_hid_init (usbdev_t *dev)
 					countries[countrycode][0], countrycode);
 
 			/* Set keyboard layout accordingly */
-			usb_hid_set_layout(countries[countrycode][1]);
+			if (usb_hid_set_layout(countries[countrycode][1]))
+				map = &keyboard_layouts[0];
 
-			// only add here, because we only support boot-keyboard HID devices
-			dev->destroy = usb_hid_destroy;
-			dev->poll = usb_hid_poll;
-			int i;
-			for (i = 0; i <= dev->num_endp; i++) {
+			for (i = 0; i < dev->num_endp; i++) {
 				if (dev->endpoints[i].endpoint == 0)
 					continue;
 				if (dev->endpoints[i].type != INTERRUPT)
@@ -507,12 +518,29 @@ usb_hid_init (usbdev_t *dev)
 					continue;
 				break;
 			}
+			if (i == dev->num_endp) {
+				usb_debug("NOTICE: USB HID keyboard has no interrupt-IN endpoint.\n");
+				free(dev->data);
+				dev->data = NULL;
+				return;
+			}
 			usb_debug ("  found endpoint %x for interrupt-in\n", i);
 			/* 20 buffers of 8 bytes, for every 10 msecs */
-			HID_INST(dev)->queue = dev->controller->create_intr_queue (&dev->endpoints[i], 8, 20, 10);
+			HID_INST(dev)->queue = dev->controller->create_intr_queue (
+					&dev->endpoints[i], 8, 20, 10);
+			if (!HID_INST(dev)->queue) {
+				usb_debug("NOTICE: could not create USB HID interrupt queue.\n");
+				free(dev->data);
+				dev->data = NULL;
+				return;
+			}
+			// only add here, because we only support boot-keyboard HID devices
+			dev->destroy = usb_hid_destroy;
+			dev->poll = usb_hid_poll;
 			keycount = 0;
 			usb_debug ("  configuration done.\n");
 			break;
+		}
 		default:
 			usb_debug("NOTICE: HID interface protocol %d%s not supported.\n",
 				 interface->bInterfaceProtocol,
@@ -535,7 +563,9 @@ static int usbhid_getchar (void)
 	if (keycount == 0)
 		return 0;
 	ret = keybuffer[0];
-	memmove(keybuffer, keybuffer + 1, --keycount);
+	--keycount;
+	memmove(keybuffer, keybuffer + 1,
+		keycount * sizeof(keybuffer[0]));
 
 	return (int)ret;
 }

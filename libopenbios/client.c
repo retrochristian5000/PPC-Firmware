@@ -246,8 +246,11 @@ static void dump_return(prom_args_t *pb)
 static int
 handle_calls(prom_args_t *pb)
 {
-	int i, j, dstacksave;
+	int i, dstacksave;
 	ucell val;
+#ifdef DEBUG_CIF
+	int j;
+#endif
 
 #ifdef DEBUG_CIF
 	printk("%s %s ([" FMT_prom_arg "] -- [" FMT_prom_arg "])\n",
@@ -274,12 +277,17 @@ handle_calls(prom_args_t *pb)
 
 	/* Store catch result */
 	pb->args[pb->nargs] = val;
-	
+
+#ifdef DEBUG_CIF
 	j = dstackcnt;
-	for (i = 1; i < pb->nret; i++, j--) {
+#endif
+	for (i = 1; i < pb->nret; i++) {
                 if (dstackcnt > dstacksave) {
 			pb->args[pb->nargs + i] = POP();
 		}
+#ifdef DEBUG_CIF
+		j--;
+#endif
 	}
 
 #ifdef DEBUG_CIF
@@ -306,7 +314,10 @@ of_client_interface(int *params)
 {
 	prom_args_t *pb = (prom_args_t*)params;
 	ucell val;
-	int i, j, dstacksave;
+	int i, dstacksave;
+#ifdef DEBUG_CIF
+	int j;
+#endif
 
 	if (pb->nargs < 0 || pb->nret < 0 ||
             pb->nargs + pb->nret > PROM_MAX_ARGS)
@@ -342,11 +353,16 @@ of_client_interface(int *params)
 		return -1;
 	}
 
+#ifdef DEBUG_CIF
 	j = dstackcnt;
-	for (i = 0; i < pb->nret; i++, j--) {
+#endif
+	for (i = 0; i < pb->nret; i++) {
 		if (dstackcnt > dstacksave) {
 			pb->args[pb->nargs + i] = POP();
 		}
+#ifdef DEBUG_CIF
+		j--;
+#endif
 	}
 
 #ifdef DEBUG_CIF

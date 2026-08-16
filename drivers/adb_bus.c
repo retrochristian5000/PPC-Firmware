@@ -69,7 +69,7 @@ int adb_bus_init (char *path, adb_bus_t *bus)
 {
     char buf[64];
     uint8_t buffer[ADB_BUF_SIZE];
-    uint8_t adb_addresses[16] =
+    int8_t adb_addresses[16] =
         { 8, 9, 10, 11, 12, 13, 14, -1, -1, -1, -1, -1, -1, -1, 0, };
     adb_dev_t tmp_device, **cur;
     int address;
@@ -253,6 +253,8 @@ int adb_cmd (adb_dev_t *dev, uint8_t cmd, uint8_t reg,
     case ADB_TALK:
         adb_send[0] = (dev->addr << 4) | cmd | reg;
         break;
+    default:
+        return -1;
     }
     memset(adb_rcv, 0, ADB_BUF_SIZE);
     len = (*dev->bus->req)(dev->bus->host, adb_send, len + 1, adb_rcv);

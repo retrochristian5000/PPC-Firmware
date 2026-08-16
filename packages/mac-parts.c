@@ -432,14 +432,10 @@ macparts_initialize( __attribute__((unused)) macparts_info_t *di )
 static void
 macparts_seek(macparts_info_t *di )
 {
-	ducell pos = DPOP();
-	ducell offs, size;
+	long long pos = DPOP();
+	long long offs, size;
 
-	/* A double-cell of all ones is the parent interface's seek-to-EOF sentinel. */
-	if (pos == (ducell)-1)
-		RET( -1 );
-
-	DPRINTF("macparts_seek %llx:\n", (unsigned long long)pos);
+	DPRINTF("macparts_seek %llx:\n", pos);
 
 	/* Seek is invalid if we reach the end of the device */
 	size = ((ducell)di->size_hi << BITS) | di->size_lo;
@@ -451,7 +447,7 @@ macparts_seek(macparts_info_t *di )
 	offs += pos;
 	DPUSH(offs);
 
-	DPRINTF("macparts_seek parent offset %llx:\n", (unsigned long long)offs);
+	DPRINTF("macparts_seek parent offset %llx:\n", offs);
 
 	call_package(di->seek_xt, my_parent());
 }

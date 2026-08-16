@@ -1,0 +1,38 @@
+name: driver warning safety
+
+on:
+  push:
+    branches:
+      - "*"
+    paths:
+      - "drivers/**.c"
+      - ".github/workflows/driver-warning-safety.yml"
+
+jobs:
+  warning-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Reject comment-only driver fallthrough
+        run: |
+          set -eu
+          if grep -RniE --include='*.c' 'fall([[:space:]_-]*through|through)' drivers; then
+            echo 'error: drivers must use explicit control flow instead of comment-only fallthrough' >&2
+            exit 1
+          fi
+
+      - name: Guard ADB LISTEN and TALK separation
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('drivers/adb_bus.c').read_text()
+          listen = source.index('case ADB_LISTEN:')
+          talk = source.index('case ADB_TALK:', listen)
+          body = source[listen:talk]
+          if 'break;' not in body:
+              raise SystemExit('error: ADB_LISTEN must terminate explicitly before ADB_TALK')
+          PY

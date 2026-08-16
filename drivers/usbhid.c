@@ -236,7 +236,7 @@ static const struct layout_maps keyboard_layouts[] = {
 	KEY_BREAK, KEY_IC, KEY_HOME, KEY_PPAGE, KEY_DC, KEY_END, KEY_NPAGE, KEY_RIGHT,
 	/* 50 */
 	KEY_LEFT, KEY_DOWN, KEY_UP, -1 /*NumLck*/, '/', '*', '-' /* = ? */, '+',
-	KEY_ENTER, KEY_END, KEY_NPAGE, KEY_LEFT, -1, KEY_RIGHT, KEY_HOME,
+	KEY_ENTER, KEY_END, KEY_DOWN, KEY_NPAGE, KEY_LEFT, -1, KEY_RIGHT, KEY_HOME,
 	/* 60 */
 	KEY_UP, KEY_PPAGE, -1, KEY_DC, -1 /* < > | */, -1 /* Win Key Right */, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1,

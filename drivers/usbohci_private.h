@@ -38,7 +38,7 @@
 #include "usb.h"
 
 #define READ_OPREG(ohci, field) (__le32_to_cpu((ohci)->opreg->field))
-#define MASK(startbit, lenbit) (((1<<(lenbit))-1)<<(startbit))
+#define MASK(startbit, lenbit) (((1U<<(lenbit))-1U)<<(startbit))
 
 	// FIXME: fake
 	typedef enum { CMD} reg;
@@ -92,15 +92,15 @@
 		OverCurrentIndicator = 1<<1,
 		DeviceRemoteWakeupEnable = 1<<15,
 		LocalPowerStatusChange = 1<<16,
-		OverCurrentIndicatorChange = 1<<17,
-		ClearRemoteWakeupEnable = 1<<31
+		OverCurrentIndicatorChange = 1<<17
 	} HcRhStatusReg;
+#define ClearRemoteWakeupEnable (1U << 31)
 
 	extern enum {
 		FrameInterval = 1<<0,
-		FSLargestDataPacket = 1<<16,
-		FrameIntervalToggle = 1<<31
+		FSLargestDataPacket = 1<<16
 	} HcFmIntervalOffset;
+#define FrameIntervalToggle (1U << 31)
 	extern enum {
 		FrameIntervalMask = MASK(0, 14),
 		FSLargestDataPacketMask = MASK(16, 15),
@@ -144,9 +144,9 @@
 	} HcCommandStatusMask;
 
 	extern enum {
-		FrameRemaining = 1<<0,
-		FrameRemainingToggle = 1<<31
+		FrameRemaining = 1<<0
 	} HcFmRemainingReg;
+#define FrameRemainingToggle (1U << 31)
 
 	extern enum {
 		SchedulingOverrung = 1<<0,
@@ -158,6 +158,7 @@
 		RootHubStatusChange = 1<<6,
 		OwnershipChange = 1<<30
 	} HcInterruptStatusReg;
+#define MasterInterruptEnable (1U << 31)
 
      typedef struct {
 	// Control and Status Partition

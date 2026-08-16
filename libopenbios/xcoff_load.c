@@ -152,7 +152,6 @@ xcoff_init_program(void)
 	COFF_aouthdr_t *ahdr;
 	COFF_scnhdr_t *shdr;
 	uint32_t offset;
-	size_t total_size = 0;
 	int i;
 
 	feval("load-base");
@@ -205,7 +204,6 @@ xcoff_init_program(void)
 
 			memcpy((char*)(uintptr_t)shdr->s_vaddr, base + shdr->s_scnptr,
 			       shdr->s_size);
-			total_size += shdr->s_size;
 #ifdef CONFIG_PPC
 			flush_icache_range((char*)(uintptr_t)shdr->s_vaddr,
 					 (char*)(uintptr_t)(shdr->s_vaddr + shdr->s_size));
@@ -214,12 +212,10 @@ xcoff_init_program(void)
 
 			memcpy((char*)(uintptr_t)shdr->s_vaddr, base + shdr->s_scnptr,
 			       shdr->s_size);
-			total_size += shdr->s_size;
 
 		} else if (strcmp(shdr->s_name, ".bss") == 0) {
 
 			memset((void *)(uintptr_t)shdr->s_vaddr, 0, shdr->s_size);
-			total_size += shdr->s_size;
 		} else {
 			DPRINTF("    Skip '%s' section\n", shdr->s_name);
 		}

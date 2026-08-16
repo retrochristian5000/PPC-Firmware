@@ -357,7 +357,6 @@ elf_readhdrs(int offset, Elf_ehdr *ehdr)
 {
     unsigned long phdr_size;
     Elf_phdr *phdr;
-
     phdr_size = ehdr->e_phnum * sizeof(Elf_phdr);
     phdr = malloc(phdr_size);
     seek_io(fd, offset + ehdr->e_phoff);
@@ -476,7 +475,7 @@ elf_init_program(void)
 	int i;
 	Elf_ehdr *ehdr;
 	Elf_phdr *phdr;
-	size_t size, total_size = 0;
+	size_t size;
 	char *addr;
 	uintptr_t tmp;
 
@@ -517,8 +516,6 @@ elf_init_program(void)
 		addr = (char *)tmp;
 
 		memcpy(addr, base + phdr[i].p_offset, size);
-
-		total_size += size;
 
 #ifdef CONFIG_PPC
 		flush_icache_range( addr, addr + size );

@@ -368,6 +368,7 @@ usb_hid_process_keyboard_event(usbhid_inst_t *const inst,
 		if (modifiers & MOD_CTRL) {
 			switch (keypress) {
 			case 'a' ... 'z':
+			case 'A' ... 'Z':
 				keypress &= 0x1f;
 				break;
 			default:
@@ -481,6 +482,9 @@ usb_hid_init (usbdev_t *dev)
 	configuration_descriptor_t *cd = (configuration_descriptor_t*)dev->configuration;
 	interface_descriptor_t *interface = (interface_descriptor_t*)(((char *) cd) + cd->bLength);
 
+	/* HID owns descriptor/configuration cleanup even for unsupported HID variants. */
+	dev->destroy = usb_hid_destroy;
+
 	if (interface->bInterfaceSubClass == hid_subclass_boot) {
 		u8 countrycode = 0;
 		usb_debug ("  supports boot interface..\n");
@@ -501,7 +505,6 @@ usb_hid_init (usbdev_t *dev)
 			}
 			memset(dev->data, 0, sizeof(usbhid_inst_t));
 			HID_INST(dev)->map = &keyboard_layouts[0];
-			dev->destroy = usb_hid_destroy;
 
 			usb_debug ("  configuring...\n");
 			if (usb_hid_set_protocol(dev, interface, hid_proto_boot)) {

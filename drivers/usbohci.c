@@ -291,7 +291,7 @@ ohci_init (void *bar)
 
 fail_periodic:
 	ohci_reset(controller);
-	free(periodic_ed);
+	free((void *)periodic_ed);
 	OHCI_INST(controller)->periodic_ed = NULL;
 fail_hcca:
 	free((void *)OHCI_INST(controller)->hcca);

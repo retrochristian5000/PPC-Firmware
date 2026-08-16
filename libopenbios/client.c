@@ -248,9 +248,6 @@ handle_calls(prom_args_t *pb)
 {
 	int i, dstacksave;
 	ucell val;
-#ifdef DEBUG_CIF
-	int j;
-#endif
 
 #ifdef DEBUG_CIF
 	printk("%s %s ([" FMT_prom_arg "] -- [" FMT_prom_arg "])\n",
@@ -278,24 +275,18 @@ handle_calls(prom_args_t *pb)
 	/* Store catch result */
 	pb->args[pb->nargs] = val;
 
-#ifdef DEBUG_CIF
-	j = dstackcnt;
-#endif
 	for (i = 1; i < pb->nret; i++) {
                 if (dstackcnt > dstacksave) {
 			pb->args[pb->nargs + i] = POP();
 		}
-#ifdef DEBUG_CIF
-		j--;
-#endif
 	}
 
 #ifdef DEBUG_CIF
 	/* useful for debug but not necessarily an error */
-	if (j != dstacksave) {
+	if (dstackcnt != dstacksave) {
 		printk("%s '%s': possible argument error (" FMT_prom_arg "--" FMT_prom_arg ") got %d\n",
 			get_service(pb), arg2pointer(pb->args[0]),
-			pb->nargs - 2, pb->nret, j - dstacksave);
+			pb->nargs - 2, pb->nret, dstackcnt - dstacksave);
 	}
 
 	printk("handle_calls return:");
@@ -315,9 +306,6 @@ of_client_interface(int *params)
 	prom_args_t *pb = (prom_args_t*)params;
 	ucell val;
 	int i, dstacksave;
-#ifdef DEBUG_CIF
-	int j;
-#endif
 
 	if (pb->nargs < 0 || pb->nret < 0 ||
             pb->nargs + pb->nret > PROM_MAX_ARGS)
@@ -353,22 +341,16 @@ of_client_interface(int *params)
 		return -1;
 	}
 
-#ifdef DEBUG_CIF
-	j = dstackcnt;
-#endif
 	for (i = 0; i < pb->nret; i++) {
 		if (dstackcnt > dstacksave) {
 			pb->args[pb->nargs + i] = POP();
 		}
-#ifdef DEBUG_CIF
-		j--;
-#endif
 	}
 
 #ifdef DEBUG_CIF
-	if (j != dstacksave) {
+	if (dstackcnt != dstacksave) {
 		printk("service %s: possible argument error (%d %d)\n",
-		       get_service(pb), i, j - dstacksave);
+		       get_service(pb), i, dstackcnt - dstacksave);
 
 		/* Some clients request less parameters than the CIF method
 		returns, e.g. getprop with OpenSolaris. Hence we drop any

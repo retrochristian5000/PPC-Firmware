@@ -55,6 +55,16 @@ static void ohci_destroy_intr_queue (endpoint_t *ep, void *queue);
 static u8* ohci_poll_intr_queue (void *queue);
 static void ohci_process_done_queue(ohci_t *ohci, int spew_debug);
 
+static void *
+ohci_alloc_aligned(size_t alignment, size_t size)
+{
+	void *ptr = NULL;
+
+	if (ofmem_posix_memalign(&ptr, alignment, size) != 0)
+		return NULL;
+	return ptr;
+}
+
 #ifdef USB_DEBUG_ED
 static void
 dump_td (td_t *cur)
@@ -157,7 +167,7 @@ ohci_reset (hci_t *controller)
 }
 
 static void
-ohci_reinit (hci_t *controller)
+ohci_reinit (__attribute__((unused)) hci_t *controller)
 {
 }
 
@@ -165,19 +175,20 @@ hci_t *
 ohci_init (void *bar)
 {
 	int i;
-
 	hci_t *controller = new_controller ();
+	ed_t *periodic_ed = NULL;
 
 	if (!controller) {
 		printk("Could not create USB controller instance.\n");
 		return NULL;
-        }
+	}
 
 	controller->instance = malloc (sizeof (ohci_t));
 	if(!controller->instance) {
 		printk("Not enough memory creating USB controller instance.\n");
-                return NULL;
-        }
+		goto fail_controller;
+	}
+	memset(controller->instance, 0, sizeof(ohci_t));
 
 	controller->type = OHCI;
 
@@ -198,6 +209,10 @@ ohci_init (void *bar)
 		controller->devices[i] = 0;
 	}
 	init_device_entry (controller, 0);
+	if (!controller->devices[0]) {
+		printk("Not enough memory creating OHCI root hub.\n");
+		goto fail_instance;
+	}
 	OHCI_INST (controller)->roothub = controller->devices[0];
 
 	controller->reg_base = (u32)(unsigned long)bar;
@@ -227,14 +242,21 @@ ohci_init (void *bar)
 	OHCI_INST (controller)->opreg->HcCommandStatus = __cpu_to_le32(HostControllerReset);
 	udelay (10); /* at most 10us for reset to complete. State must be set to Operational within 2ms (5.1.1.4) */
 	OHCI_INST (controller)->opreg->HcFmInterval = interval;
-	ofmem_posix_memalign((void **)&(OHCI_INST (controller)->hcca), 256, 256);
+	OHCI_INST (controller)->hcca = ohci_alloc_aligned(256, 256);
+	if (!OHCI_INST (controller)->hcca) {
+		printk("Not enough memory creating OHCI HCCA.\n");
+		goto fail_root;
+	}
 	memset((void*)OHCI_INST (controller)->hcca, 0, 256);
 
 	usb_debug("HCCA addr %p\n", OHCI_INST(controller)->hcca);
 	/* Initialize interrupt table. */
 	ohci_t *const ohci = OHCI_INST(controller);
-	ed_t *const periodic_ed;
-        ofmem_posix_memalign((void **)&periodic_ed, sizeof(ed_t), sizeof(ed_t));
+	periodic_ed = ohci_alloc_aligned(sizeof(ed_t), sizeof(ed_t));
+	if (!periodic_ed) {
+		printk("Not enough memory creating OHCI periodic endpoint.\n");
+		goto fail_hcca;
+	}
 	memset((void *)periodic_ed, 0, sizeof(*periodic_ed));
 	for (i = 0; i < 32; ++i)
 		ohci->hcca->HccaInterruptTable[i] = __cpu_to_le32(virt_to_phys(periodic_ed));
@@ -258,7 +280,28 @@ ohci_init (void *bar)
 	controller->devices[0]->controller = controller;
 	controller->devices[0]->init = ohci_rh_init;
 	controller->devices[0]->init (controller->devices[0]);
+	if (!controller->devices[0]->data) {
+		printk("Could not initialize OHCI root hub.\n");
+		goto fail_periodic;
+	}
 	return controller;
+
+fail_periodic:
+	ohci_reset(controller);
+	free(periodic_ed);
+	OHCI_INST(controller)->periodic_ed = NULL;
+fail_hcca:
+	free((void *)OHCI_INST(controller)->hcca);
+	OHCI_INST(controller)->hcca = NULL;
+fail_root:
+	usb_detach_device(controller, 0);
+fail_instance:
+	free(controller->instance);
+	controller->instance = NULL;
+fail_controller:
+	detach_controller(controller);
+	free(controller);
+	return NULL;
 }
 
 hci_t *
@@ -282,26 +325,31 @@ ohci_pci_init (pci_addr addr)
 static void
 ohci_shutdown (hci_t *controller)
 {
+	int i;
+
 	if (controller == 0)
 		return;
 	detach_controller (controller);
 	ohci_stop(controller);
-	OHCI_INST (controller)->roothub->destroy (OHCI_INST (controller)->
-						  roothub);
+	for (i = 127; i >= 0; --i) {
+		if (controller->devices[i])
+			usb_detach_device(controller, i);
+	}
 	controller->reset (controller);
 	free ((void *)OHCI_INST (controller)->periodic_ed);
+	free ((void *)OHCI_INST (controller)->hcca);
 	free (OHCI_INST (controller));
 	free (controller);
 }
 
 static void
-ohci_start (hci_t *controller)
+ohci_start (__attribute__((unused)) hci_t *controller)
 {
 // TODO: turn on all operation of OHCI, but assume that it's initialized.
 }
 
 static void
-ohci_stop (hci_t *controller)
+ohci_stop (__attribute__((unused)) hci_t *controller)
 {
 // TODO: turn off all operation of OHCI
 }
@@ -345,6 +393,18 @@ wait_for_ed(usbdev_t *dev, ed_t *head, int pages)
 }
 
 static void
+ohci_free_td_chain(td_t *td)
+{
+	while (td) {
+		u32 next = __le32_to_cpu(td->next_td) & ~0x3;
+		td_t *next_td = next ? (td_t *)phys_to_virt(next) : NULL;
+
+		free((void *)td);
+		td = next_td;
+	}
+}
+
+static void
 ohci_free_ed (ed_t *const head)
 {
 	/* In case the transfer canceled, we have to free unprocessed TDs. */
@@ -370,16 +430,26 @@ ohci_control (usbdev_t *dev, direction_t dir, int drlen, void *devreq, int dalen
 	      unsigned char *data)
 {
 	td_t *cur;
+	int first_page = 0, last_page = 0, pages = 0;
+	int transfer_pages;
+
+	if (drlen <= 0 || !devreq || dalen < 0 || (dalen > 0 && !data))
+		return 1;
 
 	// pages are specified as 4K in OHCI, so don't use getpagesize()
-	int first_page = (unsigned long)data / 4096;
-	int last_page = (unsigned long)(data+dalen-1)/4096;
-	if (last_page < first_page) last_page = first_page;
-	int pages = (dalen==0)?0:(last_page - first_page + 1);
+	if (dalen > 0) {
+		first_page = (unsigned long)data / 4096;
+		last_page = (unsigned long)(data + dalen - 1) / 4096;
+		if (last_page < first_page)
+			last_page = first_page;
+		pages = last_page - first_page + 1;
+	}
+	transfer_pages = pages;
 
 	/* First TD. */
-	td_t *const first_td;
-        ofmem_posix_memalign((void **)&first_td, sizeof(td_t), sizeof(td_t));
+	td_t *first_td = ohci_alloc_aligned(sizeof(td_t), sizeof(td_t));
+	if (!first_td)
+		return 1;
 	memset((void *)first_td, 0, sizeof(*first_td));
 	cur = first_td;
 
@@ -393,8 +463,11 @@ ohci_control (usbdev_t *dev, direction_t dir, int drlen, void *devreq, int dalen
 
 	while (pages > 0) {
 		/* One more TD. */
-		td_t *const next;
-		ofmem_posix_memalign((void **)&next, sizeof(td_t), sizeof(td_t));
+		td_t *next = ohci_alloc_aligned(sizeof(td_t), sizeof(td_t));
+		if (!next) {
+			ohci_free_td_chain(first_td);
+			return 1;
+		}
 		memset((void *)next, 0, sizeof(*next));
 		/* Linked to the previous. */
 		cur->next_td = __cpu_to_le32(virt_to_phys(next));
@@ -428,8 +501,11 @@ ohci_control (usbdev_t *dev, direction_t dir, int drlen, void *devreq, int dalen
 	}
 
 	/* One more TD. */
-	td_t *const next_td;
-	ofmem_posix_memalign((void **)&next_td, sizeof(td_t), sizeof(td_t));
+	td_t *next_td = ohci_alloc_aligned(sizeof(td_t), sizeof(td_t));
+	if (!next_td) {
+		ohci_free_td_chain(first_td);
+		return 1;
+	}
 	memset((void *)next_td, 0, sizeof(*next_td));
 	/* Linked to the previous. */
 	cur->next_td = __cpu_to_le32(virt_to_phys(next_td));
@@ -444,15 +520,21 @@ ohci_control (usbdev_t *dev, direction_t dir, int drlen, void *devreq, int dalen
 	cur->buffer_end = 0;
 
 	/* Final dummy TD. */
-	td_t *const final_td;
-	ofmem_posix_memalign((void **)&final_td, sizeof(td_t), sizeof(td_t));
+	td_t *final_td = ohci_alloc_aligned(sizeof(td_t), sizeof(td_t));
+	if (!final_td) {
+		ohci_free_td_chain(first_td);
+		return 1;
+	}
 	memset((void *)final_td, 0, sizeof(*final_td));
 	/* Linked to the previous. */
 	cur->next_td = __cpu_to_le32(virt_to_phys(final_td));
 
 	/* Data structures */
-	ed_t *head;
-	ofmem_posix_memalign((void **)&head, sizeof(ed_t), sizeof(ed_t));
+	ed_t *head = ohci_alloc_aligned(sizeof(ed_t), sizeof(ed_t));
+	if (!head) {
+		ohci_free_td_chain(first_td);
+		return 1;
+	}
 	memset((void*)head, 0, sizeof(*head));
 	head->config = __cpu_to_le32((dev->address << ED_FUNC_SHIFT) |
 		(0 << ED_EP_SHIFT) |
@@ -473,8 +555,7 @@ ohci_control (usbdev_t *dev, direction_t dir, int drlen, void *devreq, int dalen
 	OHCI_INST(dev->controller)->opreg->HcControl |= __cpu_to_le32(ControlListEnable);
 	OHCI_INST(dev->controller)->opreg->HcCommandStatus = __cpu_to_le32(ControlListFilled);
 
-	int failure = wait_for_ed(dev, head,
-			(dalen==0)?0:(last_page - first_page + 1));
+	int failure = wait_for_ed(dev, head, transfer_pages);
 	/* Wait some frames before and one after disabling list access. */
 	mdelay(4);
 	OHCI_INST(dev->controller)->opreg->HcControl &= __cpu_to_le32(~ControlListEnable);
@@ -491,15 +572,26 @@ static int
 ohci_bulk (endpoint_t *ep, int dalen, u8 *data, int finalize)
 {
 	int i;
+	int first_page = 0, last_page = 0, pages = 0;
+	int transfer_pages;
 	usb_debug("bulk: %x bytes from %p, finalize: %x, maxpacketsize: %x\n", dalen, data, finalize, ep->maxpacketsize);
+
+	if (dalen < 0 || ep->maxpacketsize <= 0 || (dalen > 0 && !data))
+		return 1;
+	if (dalen == 0 && !finalize)
+		return 0;
 
 	td_t *cur, *next;
 
 	// pages are specified as 4K in OHCI, so don't use getpagesize()
-	int first_page = (unsigned long)data / 4096;
-	int last_page = (unsigned long)(data+dalen-1)/4096;
-	if (last_page < first_page) last_page = first_page;
-	int pages = (dalen==0)?0:(last_page - first_page + 1);
+	if (dalen > 0) {
+		first_page = (unsigned long)data / 4096;
+		last_page = (unsigned long)(data + dalen - 1) / 4096;
+		if (last_page < first_page)
+			last_page = first_page;
+		pages = last_page - first_page + 1;
+	}
+	transfer_pages = pages;
 	int td_count = (pages+1)/2;
 
 	if (finalize && ((dalen % ep->maxpacketsize) == 0)) {
@@ -507,8 +599,9 @@ ohci_bulk (endpoint_t *ep, int dalen, u8 *data, int finalize)
 	}
 
 	/* First TD. */
-	td_t *const first_td;
-	ofmem_posix_memalign((void **)&first_td, sizeof(td_t), sizeof(td_t));
+	td_t *first_td = ohci_alloc_aligned(sizeof(td_t), sizeof(td_t));
+	if (!first_td)
+		return 1;
 	memset((void *)first_td, 0, sizeof(*first_td));
 	cur = next = first_td;
 
@@ -519,34 +612,38 @@ ohci_bulk (endpoint_t *ep, int dalen, u8 *data, int finalize)
                         TD_DELAY_INTERRUPT_NOINTR |
                         TD_TOGGLE_FROM_ED |
                         TD_CC_NOACCESS);
-		cur->current_buffer_pointer = __cpu_to_le32(virt_to_phys(data));
-		pages--;
 		if (dalen == 0) {
 			/* magic TD for empty packet transfer */
 			cur->current_buffer_pointer = 0;
 			cur->buffer_end = 0;
-			/* assert((pages == 0) && finalize); */
-		}
-		int consumed = (4096 - ((unsigned long)data % 4096));
-		if (consumed >= dalen) {
-			// end of data is within same page
-			cur->buffer_end = __cpu_to_le32(virt_to_phys(data + dalen - 1));
-			dalen = 0;
-			/* assert(pages == finalize); */
 		} else {
-			dalen -= consumed;
-			data += consumed;
+			cur->current_buffer_pointer = __cpu_to_le32(virt_to_phys(data));
 			pages--;
-			int second_page_size = dalen;
-			if (dalen > 4096) {
-				second_page_size = 4096;
+			int consumed = (4096 - ((unsigned long)data % 4096));
+			if (consumed >= dalen) {
+				// end of data is within same page
+				cur->buffer_end = __cpu_to_le32(virt_to_phys(data + dalen - 1));
+				dalen = 0;
+				/* assert(pages == finalize); */
+			} else {
+				dalen -= consumed;
+				data += consumed;
+				pages--;
+				int second_page_size = dalen;
+				if (dalen > 4096) {
+					second_page_size = 4096;
+				}
+				cur->buffer_end = __cpu_to_le32(virt_to_phys(data + second_page_size - 1));
+				dalen -= second_page_size;
+				data += second_page_size;
 			}
-			cur->buffer_end = __cpu_to_le32(virt_to_phys(data + second_page_size - 1));
-			dalen -= second_page_size;
-			data += second_page_size;
 		}
 		/* One more TD. */
-		ofmem_posix_memalign((void **)&next, sizeof(td_t), sizeof(td_t));
+		next = ohci_alloc_aligned(sizeof(td_t), sizeof(td_t));
+		if (!next) {
+			ohci_free_td_chain(first_td);
+			return 1;
+		}
 		memset((void *)next, 0, sizeof(*next));
 		/* Linked to the previous. */
 		cur->next_td = __cpu_to_le32(virt_to_phys(next));
@@ -558,8 +655,11 @@ ohci_bulk (endpoint_t *ep, int dalen, u8 *data, int finalize)
 	cur = next;
 
 	/* Data structures */
-	ed_t *head;
-	ofmem_posix_memalign((void **)&head, sizeof(ed_t), sizeof(ed_t));
+	ed_t *head = ohci_alloc_aligned(sizeof(ed_t), sizeof(ed_t));
+	if (!head) {
+		ohci_free_td_chain(first_td);
+		return 1;
+	}
 	memset((void*)head, 0, sizeof(*head));
 	head->config = __cpu_to_le32((ep->dev->address << ED_FUNC_SHIFT) |
 		((ep->endpoint & 0xf) << ED_EP_SHIFT) |
@@ -579,8 +679,7 @@ ohci_bulk (endpoint_t *ep, int dalen, u8 *data, int finalize)
 	OHCI_INST(ep->dev->controller)->opreg->HcControl |= __cpu_to_le32(BulkListEnable);
 	OHCI_INST(ep->dev->controller)->opreg->HcCommandStatus = __cpu_to_le32(BulkListFilled);
 
-	int failure = wait_for_ed(ep->dev, head,
-			(dalen==0)?0:(last_page - first_page + 1));
+	int failure = wait_for_ed(ep->dev, head, transfer_pages);
 	/* Wait some frames before and one after disabling list access. */
 	mdelay(4);
 	OHCI_INST(ep->dev->controller)->opreg->HcControl &= __cpu_to_le32(~BulkListEnable);
@@ -641,6 +740,19 @@ ohci_fill_intrq_td(intrq_td_t *const td, intr_queue_t *const intrq,
 	td->data = data;
 }
 
+static void
+ohci_free_intr_td_chain(intrq_td_t *td)
+{
+	while (td) {
+		u32 next = __le32_to_cpu(td->td.next_td) & ~0x3;
+		intrq_td_t *next_td = next ?
+			INTRQ_TD_FROM_TD(phys_to_virt(next)) : NULL;
+
+		free(td);
+		td = next_td;
+	}
+}
+
 /* create and hook-up an intr queue into device schedule */
 static void *
 ohci_create_intr_queue(endpoint_t *const ep, const int reqsize,
@@ -649,21 +761,31 @@ ohci_create_intr_queue(endpoint_t *const ep, const int reqsize,
 	int i;
 	intrq_td_t *first_td = NULL, *last_td = NULL;
 
-	if (reqsize > 4096)
+	if (!ep || reqsize <= 0 || reqsize > 4096 || reqcount <= 0 || reqtiming <= 0)
 		return NULL;
 
-	intr_queue_t *const intrq;
-	ofmem_posix_memalign((void **)&intrq, sizeof(intrq->ed), sizeof(*intrq));
+	intr_queue_t *intrq = ohci_alloc_aligned(sizeof(ed_t), sizeof(*intrq));
+	if (!intrq)
+		return NULL;
 	memset(intrq, 0, sizeof(*intrq));
 	intrq->data = (u8 *)malloc(reqcount * reqsize);
+	if (!intrq->data) {
+		free(intrq);
+		return NULL;
+	}
 	intrq->reqsize = reqsize;
 	intrq->endp = ep;
 
 	/* Create #reqcount TDs. */
 	u8 *cur_data = intrq->data;
 	for (i = 0; i < reqcount; ++i) {
-		intrq_td_t *const td;
-		ofmem_posix_memalign((void **)&td, sizeof(td->td), sizeof(*td));
+		intrq_td_t *td = ohci_alloc_aligned(sizeof(td_t), sizeof(*td));
+		if (!td) {
+			ohci_free_intr_td_chain(first_td);
+			free(intrq->data);
+			free(intrq);
+			return NULL;
+		}
 		++intrq->remaining_tds;
 		ohci_fill_intrq_td(td, intrq, cur_data);
 		cur_data += reqsize;
@@ -675,12 +797,16 @@ ohci_create_intr_queue(endpoint_t *const ep, const int reqsize,
 	}
 
 	/* Create last, dummy TD. */
-	intrq_td_t *dummy_td;
-	ofmem_posix_memalign((void **)&dummy_td, sizeof(dummy_td->td), sizeof(*dummy_td));
+	intrq_td_t *dummy_td = ohci_alloc_aligned(sizeof(td_t), sizeof(*dummy_td));
+	if (!dummy_td) {
+		ohci_free_intr_td_chain(first_td);
+		free(intrq->data);
+		free(intrq);
+		return NULL;
+	}
 	memset(dummy_td, 0, sizeof(*dummy_td));
 	dummy_td->intrq = intrq;
-	if (last_td)
-		last_td->td.next_td = __cpu_to_le32(virt_to_phys(&dummy_td->td));
+	last_td->td.next_td = __cpu_to_le32(virt_to_phys(&dummy_td->td));
 	last_td = dummy_td;
 
 	/* Initialize ED. */
@@ -693,7 +819,7 @@ ohci_create_intr_queue(endpoint_t *const ep, const int reqsize,
 	intrq->ed.head_pointer = __cpu_to_le32(virt_to_phys(first_td) | (ep->toggle ? ED_TOGGLE : 0));
 
 #ifdef USB_DEBUG_ED
-	dump_ed(&intrq->ed);
+	dump_ed((ed_t *)&intrq->ed);
 #endif
 	/* Insert ED into periodic table. */
 	int nothing_placed	= 1;
@@ -711,7 +837,9 @@ ohci_create_intr_queue(endpoint_t *const ep, const int reqsize,
 	if (nothing_placed) {
 		usb_debug("Error: Failed to place ohci interrupt endpoint "
 			"descriptor into periodic table: no space left\n");
-		ohci_destroy_intr_queue(ep, intrq);
+		ohci_free_intr_td_chain(first_td);
+		free(intrq->data);
+		free(intrq);
 		return NULL;
 	}
 
@@ -723,8 +851,10 @@ static void
 ohci_destroy_intr_queue(endpoint_t *const ep, void *const q_)
 {
 	intr_queue_t *const intrq = (intr_queue_t *)q_;
-
 	int i;
+
+	if (!ep || !intrq)
+		return;
 
 	/* Remove interrupt queue from periodic table. */
 	ohci_t *const ohci	= OHCI_INST(ep->dev->controller);
@@ -735,34 +865,40 @@ ohci_destroy_intr_queue(endpoint_t *const ep, void *const q_)
 	/* Wait for frame to finish. */
 	mdelay(1);
 
+	/* Collect TDs that already reached the done queue. */
+	ohci_process_done_queue(ohci, 1);
+
+	/* Save data toggle before dismantling the ED. */
+	ep->toggle = __le32_to_cpu(intrq->ed.head_pointer) & ED_TOGGLE;
+
 	/* Free unprocessed TDs. */
 	while ((__le32_to_cpu(intrq->ed.head_pointer) & ~0x3) != __le32_to_cpu(intrq->ed.tail_pointer)) {
 		td_t *const cur_td = (td_t *)phys_to_virt(__le32_to_cpu(intrq->ed.head_pointer) & ~0x3);
 		intrq->ed.head_pointer = cur_td->next_td;
 		free(INTRQ_TD_FROM_TD(cur_td));
-		--intrq->remaining_tds;
+		if (intrq->remaining_tds)
+			--intrq->remaining_tds;
 	}
 	/* Free final, dummy TD. */
 	free(phys_to_virt(__le32_to_cpu(intrq->ed.head_pointer) & ~0x3));
 	/* Free data buffer. */
 	free(intrq->data);
+	intrq->data = NULL;
 
 	/* Free TDs already fetched from the done queue. */
-	ohci_process_done_queue(ohci, 1);
 	while (intrq->head) {
-		intrq_td_t *const cur_td = (intrq_td_t *const )__le32_to_cpu(intrq->head);
+		intrq_td_t *const cur_td = intrq->head;
 		intrq->head = intrq->head->next;
 		free(cur_td);
-		--intrq->remaining_tds;
+		if (intrq->remaining_tds)
+			--intrq->remaining_tds;
 	}
+	intrq->tail = NULL;
 
-	/* Mark interrupt queue to be destroyed.
-	   ohci_process_done_queue() will free the remaining TDs
-	   and finish the interrupt queue off once all TDs are gone. */
+	/* Any TD still owned by the controller is freed when it reaches the done queue. */
 	intrq->destroy = 1;
-
-	/* Save data toggle. */
-	ep->toggle = __le32_to_cpu(intrq->ed.head_pointer) & ED_TOGGLE;
+	if (!intrq->remaining_tds)
+		free(intrq);
 }
 
 /* read one intr-packet from queue, if available. extend the queue for new input.
@@ -773,8 +909,10 @@ static u8 *
 ohci_poll_intr_queue(void *const q_)
 {
 	intr_queue_t *const intrq = (intr_queue_t *)q_;
-
 	u8 *data = NULL;
+
+	if (!intrq || intrq->destroy)
+		return NULL;
 
 	/* Process done queue first, then check if we have work to do. */
 	ohci_process_done_queue(OHCI_INST(intrq->endp->dev->controller), 0);
@@ -783,6 +921,8 @@ ohci_poll_intr_queue(void *const q_)
 		/* Save pointer to processed TD and advance. */
 		intrq_td_t *const cur_td = intrq->head;
 		intrq->head = cur_td->next;
+		if (!intrq->head)
+			intrq->tail = NULL;
 
 		/* Return data buffer of this TD. */
 		data = cur_td->data;
@@ -795,8 +935,8 @@ ohci_poll_intr_queue(void *const q_)
 		memset(cur_td, 0, sizeof(*cur_td));
 		cur_td->intrq = intrq;
 		/* Insert into interrupt queue as dummy. */
-		dummy_td->td.next_td = __le32_to_cpu(virt_to_phys(&cur_td->td));
-		intrq->ed.tail_pointer = __le32_to_cpu(virt_to_phys(&cur_td->td));
+		dummy_td->td.next_td = __cpu_to_le32(virt_to_phys(&cur_td->td));
+		intrq->ed.tail_pointer = __cpu_to_le32(virt_to_phys(&cur_td->td));
 	}
 
 	return data;
@@ -830,23 +970,24 @@ ohci_process_done_queue(ohci_t *const ohci, const int spew_debug)
 		switch (__le32_to_cpu(done_td->config) & TD_QUEUETYPE_MASK) {
 		case TD_QUEUETYPE_ASYNC:
 			/* Free processed async TDs. */
-                  free((void *)done_td);
+			free((void *)done_td);
 			break;
 		case TD_QUEUETYPE_INTR: {
 			intrq_td_t *const td = INTRQ_TD_FROM_TD(done_td);
 			intr_queue_t *const intrq = td->intrq;
 			/* Check if the corresponding interrupt
-			   queue is still beeing processed. */
+			   queue is still being processed. */
 			if (intrq->destroy) {
-				/* Free this TD, and */
+				unsigned int remaining;
+
 				free(td);
-				--intrq->remaining_tds;
-				/* the interrupt queue if it has no more TDs. */
-				if (!intrq->remaining_tds)
-					free(intrq);
+				if (intrq->remaining_tds)
+					--intrq->remaining_tds;
+				remaining = intrq->remaining_tds;
 				usb_debug("Freed TD from orphaned interrupt "
-					  "queue, %d TDs remain.\n",
-					  intrq->remaining_tds);
+					  "queue, %d TDs remain.\n", remaining);
+				if (!remaining)
+					free(intrq);
 			} else {
 				/* Save done TD to be processed. */
 				td->next = temp_tdq;

@@ -77,6 +77,20 @@ typedef union {
 	u8 buffer[8];
 } usb_hid_keyboard_event_t;
 
+#define HID_KEYBOARD_ERROR_ROLLOVER 0x01
+
+static int
+usb_hid_keyboard_rollover(const usb_hid_keyboard_event_t *event)
+{
+	int i;
+
+	for (i = 0; i < 6; ++i) {
+		if (event->keys[i] != HID_KEYBOARD_ERROR_ROLLOVER)
+			return 0;
+	}
+	return 1;
+}
+
 struct layout_maps;
 
 typedef struct {
@@ -409,6 +423,13 @@ usb_hid_poll (usbdev_t *dev)
 		memcpy(current.buffer, buf, sizeof(current.buffer));
 		/* Byte 1 of the boot keyboard input report is reserved. */
 		current.reserved = 0;
+		if (usb_hid_keyboard_rollover(&current)) {
+			HID_INST(dev)->lastkeypress = 0;
+			HID_INST(dev)->repeat_delay = 0;
+			memset(&HID_INST(dev)->previous, 0,
+					sizeof(HID_INST(dev)->previous));
+			continue;
+		}
 		usb_hid_process_keyboard_event(HID_INST(dev), &current);
 		HID_INST(dev)->previous = current;
 	}

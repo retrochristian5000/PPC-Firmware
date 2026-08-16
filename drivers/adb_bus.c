@@ -31,13 +31,13 @@
 DECLARE_UNNAMED_NODE( adb, 0, sizeof(int));
 
 static void
-adb_open(int *idx)
+adb_open(__attribute__((unused)) int *idx)
 {
 	RET(-1);
 }
 
 static void
-adb_close(int *idx)
+adb_close(__attribute__((unused)) int *idx)
 {
 }
 
@@ -248,7 +248,8 @@ int adb_cmd (adb_dev_t *dev, uint8_t cmd, uint8_t reg,
         break;
     case ADB_LISTEN:
         memcpy(adb_send + 1, buf, len);
-        /* fallthrough */
+        adb_send[0] = (dev->addr << 4) | cmd | reg;
+        break;
     case ADB_TALK:
         adb_send[0] = (dev->addr << 4) | cmd | reg;
         break;

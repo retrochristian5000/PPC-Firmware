@@ -1,0 +1,41 @@
+name: mac-parts safety
+
+on:
+  push:
+    branches:
+      - "*"
+    paths:
+      - "packages/mac-parts.c"
+      - "packages/mac-parts.h"
+      - ".github/workflows/mac-parts-safety.yml"
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Reject unsafe fixed-width APM string handling
+        run: |
+          set -eu
+          if grep -Eq 'strcmp\(par\.pmPartType|strcmp\(par\.pmProcessor|strlen\(par\.pmProcessor' packages/mac-parts.c; then
+            echo 'error: mac-parts must not treat fixed-width APM fields as unbounded C strings' >&2
+            exit 1
+          fi
+
+      - name: Require bounded selected-partition formatting
+        run: |
+          set -eu
+          if grep -Eq 'sprintf\(tmpstr' packages/mac-parts.c; then
+            echo 'error: selected-partition-args formatting must be bounded' >&2
+            exit 1
+          fi
+          grep -q 'snprintf(tmpstr' packages/mac-parts.c
+
+      - name: Require complete argument cleanup
+        run: |
+          set -eu
+          grep -q 'free(parstr);' packages/mac-parts.c
+          grep -q 'free(argstr);' packages/mac-parts.c
+          grep -q 'free(str);' packages/mac-parts.c

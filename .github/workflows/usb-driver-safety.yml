@@ -67,10 +67,16 @@ jobs:
           hid_inst = section(hid, 'typedef struct {', '#define HID_INST')
           if 'endpoint_t *endpoint;' not in hid_inst:
               failures.append('HID instances must retain the interrupt endpoint they actually queued')
+          if 'const struct layout_maps *map;' not in hid_inst:
+              failures.append('HID keyboard layout selection must be per device instance')
 
           hid_destroy = section(hid, 'usb_hid_destroy', '/* keybuffer is global')
           if 'HID_INST(dev)->endpoint' not in hid_destroy:
               failures.append('HID teardown must destroy the queue through its retained endpoint')
+          if 'free(HID_INST(dev)->descriptor)' not in hid_destroy:
+              failures.append('HID teardown must release the HID descriptor it owns')
+          if 'free(dev->descriptor)' not in hid_destroy or 'free(dev->configuration)' not in hid_destroy:
+              failures.append('HID teardown must release generic device and configuration descriptors')
 
           if not re.search(r'static int\s+usb_hid_set_idle', hid):
               failures.append('HID SET_IDLE must return controller transfer status')
@@ -81,8 +87,10 @@ jobs:
               failures.append('HID init must stop when boot-protocol or idle configuration fails')
           if 'usb_hid_queue_timing' not in hid or 'HID_INST(dev)->endpoint->interval' not in hid:
               failures.append('HID interrupt timing must derive from the normalized endpoint interval')
-          if 'free(HID_INST(dev)->descriptor)' not in hid_destroy:
-              failures.append('HID teardown must release the HID descriptor it owns')
+          if 'HID_INST(dev)->map' not in hid or 'inst->map->map' not in hid:
+              failures.append('HID event decoding must use the layout owned by that keyboard instance')
+          if re.search(r'^static const struct layout_maps \*map;', hid, re.M):
+              failures.append('HID must not retain a global mutable keyboard layout pointer')
 
           const_outputs = re.findall(r'\b(?:td_t|ed_t|intr_queue_t|intrq_td_t) \*const \w+;\s*\n\s*ofmem_posix_memalign', ohci)
           if const_outputs:
@@ -97,6 +105,16 @@ jobs:
           bulk = section(ohci, 'static int\nohci_bulk', '\n\nstruct _intr_queue;')
           if 'if (dalen > 0)' not in bulk:
               failures.append('OHCI bulk transfers must guard zero-length data pointer arithmetic')
+
+          wait_ed = section(ohci, 'wait_for_ed(', 'static void\nohci_free_td_chain')
+          if not re.search(r'if \(timeout < 0\)\s*\{[^}]*return 1;', wait_ed, re.S):
+              failures.append('OHCI endpoint timeout must be returned as transfer failure')
+
+          pci_init = section(ohci, 'ohci_pci_init (pci_addr addr)', 'static void\nohci_shutdown')
+          if 'PCI_COMMAND_MEMORY' not in pci_init:
+              failures.append('OHCI PCI initialization must enable memory-space decoding')
+          if 'PCI_BASE_ADDR_0' not in pci_init or '0xffffffff' not in pci_init or 'PCI_COMMAND_IO' not in pci_init:
+              failures.append('OHCI PCI initialization must reject invalid or I/O BAR0 values')
 
           intr_create = section(ohci, 'ohci_create_intr_queue(endpoint_t', '/* remove queue from device schedule')
           if 'reqsize <= 0' not in intr_create or 'reqcount <= 0' not in intr_create or 'reqtiming <= 0' not in intr_create:

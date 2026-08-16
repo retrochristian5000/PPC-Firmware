@@ -68,6 +68,12 @@ jobs:
           if 'CONFIG_DEBUG_USB' not in done_queue:
               failures.append('OHCI done-queue accounting must be explicitly debug-only')
 
+          dump_td = section(ohci, 'dump_td (td_t *cur)', 'static void\ndump_ed')
+          if '(3UL << 8)' in dump_td:
+              failures.append('OHCI TD diagnostics must not decode PID/direction from bits 8-9')
+          if 'TD_DIRECTION_MASK' not in dump_td or 'TD_DIRECTION_SHIFT' not in dump_td:
+              failures.append('OHCI TD diagnostics must use the named TD direction field')
+
           if failures:
               for failure in failures:
                   print(f'FAIL: {failure}')

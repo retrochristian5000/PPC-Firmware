@@ -27,6 +27,16 @@
 
 struct video_info video;
 
+static int
+video_bytes_per_pixel(int depth)
+{
+	if (depth >= 24)
+		return 4;
+	if (depth >= 15)
+		return 2;
+	return 1;
+}
+
 unsigned long
 video_get_color( int col_ind )
 {
@@ -38,6 +48,8 @@ video_get_color( int col_ind )
 	col = video.pal[col_ind];
 	if( VIDEO_DICT_VALUE(video.depth) == 24 || VIDEO_DICT_VALUE(video.depth) == 32 )
 		return col;
+	if( VIDEO_DICT_VALUE(video.depth) == 16 )
+		return ((col>>8) & 0xf800) | ((col>>5) & 0x07e0) | ((col>>3) & 0x1f);
 	if( VIDEO_DICT_VALUE(video.depth) == 15 )
 		return ((col>>9) & 0x7c00) | ((col>>6) & 0x03e0) | ((col>>3) & 0x1f);
 	return 0;
@@ -54,42 +66,37 @@ video_mask_blit(void)
 	ucell width = POP();
 	unsigned char *mask = (unsigned char *)POP();
 	unsigned char *fbaddr = (unsigned char *)POP();
-
-	ucell color;
-	unsigned char *dst, *rowdst;
-	int x, y, m, b, d, depthbytes;
+	ucell x, y;
+	int d, depthbytes;
+	size_t maskbytes;
 
 	fgcolor = video_get_color(fgcolor);
 	bgcolor = video_get_color(bgcolor);
 	d = VIDEO_DICT_VALUE(video.depth);
-	depthbytes = (d + 1) >> 3;
+	depthbytes = video_bytes_per_pixel(d);
+	maskbytes = (width + 7) >> 3;
 
-	dst = fbaddr;
-	for( y = 0; y < height; y++) {
-		rowdst = dst;
-		for( x = 0; x < (width + 1) >> 3; x++ ) {
-			for (b = 0; b < 8; b++) {
-				m = (1 << (7 - b));
+	for (y = 0; y < height; y++) {
+		unsigned char *dst = fbaddr + y * VIDEO_DICT_VALUE(video.rb);
+		unsigned char *rowmask = mask + y * maskbytes;
 
-				if (*mask & m) {
-					color = fgcolor;
-				} else {
-					color = bgcolor;
-				}
+		for (x = 0; x < width; x++) {
+			ucell color;
 
-				if( d >= 24 )
-					*((uint32_t*)dst) = color;
-				else if( d >= 15 )
-					*((uint16_t*)dst) = color;
-				else
-					*dst = color;
+			if (rowmask[x >> 3] & (1 << (7 - (x & 7))))
+				color = fgcolor;
+			else
+				color = bgcolor;
 
-				dst += depthbytes;
-			}
-			mask++;
+			if( d >= 24 )
+				*((uint32_t*)dst) = color;
+			else if( d >= 15 )
+				*((uint16_t*)dst) = color;
+			else
+				*dst = color;
+
+			dst += depthbytes;
 		}
-		dst = rowdst;
-		dst += VIDEO_DICT_VALUE(video.rb);
 	}
 }
 
@@ -110,11 +117,11 @@ video_invert_rect( void )
 	fgcolor = video_get_color(fgcolor);
 
 	if (!VIDEO_DICT_VALUE(video.ih) || x < 0 || y < 0 || w <= 0 || h <= 0 ||
-		x + w > VIDEO_DICT_VALUE(video.w) || y + h > VIDEO_DICT_VALUE(video.h))
+		x + w > (int)VIDEO_DICT_VALUE(video.w) || y + h > (int)VIDEO_DICT_VALUE(video.h))
 		return;
 
 	pp = (char*)VIDEO_DICT_VALUE(video.mvirt) + VIDEO_DICT_VALUE(video.rb) * y;
-	for( ; h--; pp += *(video.rb) ) {
+	for( ; h--; pp += VIDEO_DICT_VALUE(video.rb) ) {
 		int ww = w;
 		if( VIDEO_DICT_VALUE(video.depth) == 24 || VIDEO_DICT_VALUE(video.depth) == 32 ) {
 			uint32_t *p = (uint32_t*)pp + x;
@@ -133,7 +140,6 @@ video_invert_rect( void )
 				} else if (*p == (uint16_t)bgcolor) {
 					*p++ = fgcolor;
 				}
-			}
 		} else {
 			char *p = (char *)(pp + x);
 
@@ -161,8 +167,8 @@ video_fill_rect(void)
 	char *pp;
 	unsigned long col = video_get_color(col_ind);
 
-        if (!VIDEO_DICT_VALUE(video.ih) || x < 0 || y < 0 || w <= 0 || h <= 0 ||
-            x + w > VIDEO_DICT_VALUE(video.w) || y + h > VIDEO_DICT_VALUE(video.h))
+	if (!VIDEO_DICT_VALUE(video.ih) || x < 0 || y < 0 || w <= 0 || h <= 0 ||
+		x + w > (int)VIDEO_DICT_VALUE(video.w) || y + h > (int)VIDEO_DICT_VALUE(video.h))
 		return;
 
 	pp = (char*)VIDEO_DICT_VALUE(video.mvirt) + VIDEO_DICT_VALUE(video.rb) * y;
@@ -177,7 +183,7 @@ video_fill_rect(void)
 			while( ww-- )
 				*p++ = col;
 		} else {
-                        char *p = (char *)(pp + x);
+			char *p = (char *)(pp + x);
 
 			while( ww-- )
 				*p++ = col;
@@ -185,7 +191,7 @@ video_fill_rect(void)
 	}
 }
 
-void setup_video()
+void setup_video(void)
 {
 	/* Make everything inside the video_info structure point to the
 	   values in the Forth dictionary. Hence everything is always in
@@ -232,20 +238,20 @@ void setup_video()
 	VIDEO_DICT_VALUE(video.w) = VGA_DEFAULT_WIDTH;
 	VIDEO_DICT_VALUE(video.h) = VGA_DEFAULT_HEIGHT;
 	VIDEO_DICT_VALUE(video.depth) = VGA_DEFAULT_DEPTH;
-	VIDEO_DICT_VALUE(video.rb) = VGA_DEFAULT_LINEBYTES;
+	VIDEO_DICT_VALUE(video.rb) = VGA_DEFAULT_WIDTH * video_bytes_per_pixel(VGA_DEFAULT_DEPTH);
 
 #if defined(CONFIG_QEMU) && (defined(CONFIG_PPC) || defined(CONFIG_SPARC32) || defined(CONFIG_SPARC64))
 	/* If running from QEMU, grab the parameters from the firmware interface */
 	int w, h, d;
 
 	w = fw_cfg_read_i16(FW_CFG_ARCH_WIDTH);
-        h = fw_cfg_read_i16(FW_CFG_ARCH_HEIGHT);
-        d = fw_cfg_read_i16(FW_CFG_ARCH_DEPTH);
+	h = fw_cfg_read_i16(FW_CFG_ARCH_HEIGHT);
+	d = fw_cfg_read_i16(FW_CFG_ARCH_DEPTH);
 	if (w && h && d) {
 		VIDEO_DICT_VALUE(video.w) = w;
 		VIDEO_DICT_VALUE(video.h) = h;
 		VIDEO_DICT_VALUE(video.depth) = d;
-		VIDEO_DICT_VALUE(video.rb) = (w * ((d + 7) / 8));
+		VIDEO_DICT_VALUE(video.rb) = w * video_bytes_per_pixel(d);
 	}
 #endif
 

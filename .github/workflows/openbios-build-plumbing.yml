@@ -1,0 +1,58 @@
+name: OpenBIOS build plumbing
+
+on:
+  push:
+    branches:
+      - "*"
+    paths:
+      - Makefile
+      - Makefile.target
+      - config/scripts/switch-arch
+      - .github/workflows/openbios-build-plumbing.yml
+
+jobs:
+  build-plumbing:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/retrochristian5000/ppc-firmware-builder:sha-d75c8c5
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Verify explicit PowerPC build tools
+        shell: /bin/sh -e {0}
+        run: |
+          scratch="$PWD/.openbios-plumbing"
+          build="$scratch/build"
+          fake_toke="$scratch/pinned-toke"
+          fake_prefix="$scratch/powerpc-explicit-"
+
+          rm -rf "$scratch"
+          mkdir -p "$build"
+          printf '#!/bin/sh\nexit 0\n' > "$fake_toke"
+          printf '#!/bin/sh\nexit 0\n' > "${fake_prefix}gcc"
+          chmod +x "$fake_toke" "${fake_prefix}gcc"
+
+          (
+            cd "$build"
+            HOSTARCH=ppc \
+            TOKE="$fake_toke" \
+            CROSS_COMPILE="$fake_prefix" \
+              "$GITHUB_WORKSPACE/config/scripts/switch-arch" qemu-ppc
+          )
+
+          grep -Fx "TARGET=$fake_prefix" "$build/obj-ppc/config.mak"
+          grep -Fx "TOKE=$fake_toke" "$build/obj-ppc/config.mak"
+
+      - name: Verify POSIX dependency failure
+        shell: /bin/sh -e {0}
+        run: |
+          make_cmd="$(command -v make)"
+          printf 'TARGETS=\nODIRS=\n' > config-host.mak
+          if PATH=/nonexistent "$make_cmd" requirements SHELL=/bin/sh; then
+            echo 'error: requirements accepted a missing xsltproc' >&2
+            exit 1
+          fi

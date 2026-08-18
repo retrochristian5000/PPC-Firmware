@@ -1,0 +1,98 @@
+name: Guarded OpenBIOS linker repair
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/repair-openbios-link-flags.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: guarded-openbios-linker-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out exact triggering revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove the legacy linker flags are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          text = Path('arch/ppc/build.xml').read_text()
+          old = "$(LD) --warn-common -z noexecstack -N -T $(SRCDIR)/arch/$(ARCH)/qemu/ldscript -o $@.nostrip --whole-archive $^"
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'error: expected exactly one legacy QEMU PPC link rule, found {count}')
+          print('red guard: legacy -N OpenBIOS link rule confirmed')
+          PY
+
+      - name: Repair QEMU PowerPC linker policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('arch/ppc/build.xml')
+          text = path.read_text()
+          old = "$(LD) --warn-common -z noexecstack -N -T $(SRCDIR)/arch/$(ARCH)/qemu/ldscript -o $@.nostrip --whole-archive $^"
+          new = "$(LD) --warn-common -z noexecstack -T $(SRCDIR)/arch/$(ARCH)/qemu/ldscript -o $@.nostrip --whole-archive $^ --no-whole-archive"
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'error: guarded linker pattern count changed: {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- arch/ppc/build.xml
+
+      - name: Validate repaired OpenBIOS build description
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          path = Path('arch/ppc/build.xml')
+          ET.parse(path)
+          text = path.read_text()
+          start = text.index('<executable name="openbios-qemu.elf"')
+          end = text.index('</executable>', start)
+          rule = text[start:end]
+          if ' -N ' in rule:
+              raise SystemExit('error: obsolete -N/--omagic remains in the QEMU PPC link rule')
+          for required in ('--warn-common', '-z noexecstack', '--whole-archive', '--no-whole-archive'):
+              if required not in rule:
+                  raise SystemExit(f'error: required QEMU PPC linker policy is missing: {required}')
+          if rule.index('--no-whole-archive') < rule.index('--whole-archive'):
+              raise SystemExit('error: whole-archive state is closed before it is opened')
+          print('OpenBIOS QEMU PPC linker policy: ok')
+          PY
+
+      - name: Commit guarded repair to master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin master
+          test "$(git rev-parse origin/master)" = "${GITHUB_SHA}"
+          rm -f .github/workflows/repair-openbios-link-flags.yml
+          git config user.name 'WHP OpenBIOS repair'
+          git config user.email '252152985+retrochristian5000@users.noreply.github.com'
+          git add arch/ppc/build.xml .github/workflows/repair-openbios-link-flags.yml
+          git diff --cached --check
+          git commit -m 'ppc: repair QEMU OpenBIOS linker flags'
+          git push origin HEAD:master

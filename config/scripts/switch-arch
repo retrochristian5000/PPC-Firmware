@@ -142,7 +142,7 @@ config_set_boolean()
 
 exists()
 {
-    type "$1" >/dev/null 2>&1
+    command -v "$1" >/dev/null 2>&1
 }
 
 
@@ -160,10 +160,11 @@ VERSION=`head $SRCDIR/VERSION`
 
 echo "Configuring OpenBIOS on $HOSTARCH for $*"
 
-if exists toke; then
-    :
+TOKE=${TOKE:-toke}
+if exists "$TOKE"; then
+    TOKE=`command -v "$TOKE"`
 else
-    echo "Unable to locate toke executable from the fcode-utils package - aborting"
+    echo "Unable to locate toke executable from the fcode-utils package: $TOKE" >&2
     exit 1
 fi
 
@@ -302,7 +303,7 @@ for ARCH in $arch_list; do
         AS_FLAGS="-Wa,-32"
         ;;
     esac
-    if [ "$ARCH" != "$HOSTARCH" -o `uname -s` = "Darwin" ]; then
+    if [ -n "$CROSS_COMPILE" ] || [ "$ARCH" != "$HOSTARCH" ] || [ "`uname -s`" = "Darwin" ]; then
         cross="yes"
     fi
     crosscflags $HOSTARCH $ARCH
@@ -369,6 +370,7 @@ for ARCH in $arch_list; do
     if [ "$cross" = "yes" ]; then
         echo "TARGET=$TARGET" >> $ODIR/config.mak
     fi
+    echo "TOKE=$TOKE" >> $ODIR/config.mak
     echo "CFLAGS=$CFLAGS" >> $ODIR/config.mak
     echo "AS_FLAGS=$AS_FLAGS" >> $ODIR/config.mak
     echo "HOSTARCH?=$HOSTARCH" >> $ODIR/config.mak

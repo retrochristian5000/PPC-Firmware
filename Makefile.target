@@ -71,8 +71,9 @@ AS_FLAGS+= -g
 # current object target rather than while Makefile.target is parsed.
 DEPFLAGS = -MMD -MP -MT $@ -MF '$(@:.o=.d)'
 
-# FCode tokeniser
-TOKE   := toke
+# FCode tokeniser. switch-arch records an explicitly selected executable in
+# config.mak; standalone builds retain the historical PATH-based default.
+TOKE ?= toke
 
 quiet-command = $(if $(V),$1,$(if $(2),@echo $2 && $1, @$1))
 
@@ -105,6 +106,7 @@ $(ODIR)/target/include/openbios-version.h:
 info:
 	@echo "Building OpenBIOS on $(HOSTARCH) for $(ARCH)"
 	@echo "Target compiler: $(CC)"
+	@echo "FCode tokenizer: $(TOKE)"
 	@echo "Target optimization: $(if $(filter ppc,$(ARCH)),$(OPENBIOS_TARGET_OPTIMIZATION),-Os)"
 	@echo "Target CFLAGS: $(CFLAGS)"
 

@@ -3,7 +3,7 @@ include config-host.mak
 all: requirements info build
 
 requirements:
-	@which xsltproc &>/dev/null || ( echo ; echo "Please install libxslt2"; \
+	@command -v xsltproc >/dev/null 2>&1 || ( echo ; echo "Please install libxslt2"; \
 			echo; exit 1 )
 
 info:

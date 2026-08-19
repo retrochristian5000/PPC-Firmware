@@ -24,20 +24,6 @@
 
 #define debug printk
 
-#ifdef CONFIG_PPC_64BITSUPPORT
-  #ifdef __powerpc64__
-    #define ULONG_SIZE 8
-    #define STACKFRAME_MINSIZE 48
-    #define STKOFF STACKFRAME_MINSIZE
-    #define SAVE_SPACE 320
-  #else
-    #define ULONG_SIZE 4
-    #define STACKFRAME_MINSIZE 16
-    #define STKOFF 8
-    #define SAVE_SPACE 156
-  #endif
-#endif
-
 static void start_main(void); /* forward decl. */
 void __exit_context(void); /* assembly routine */
 

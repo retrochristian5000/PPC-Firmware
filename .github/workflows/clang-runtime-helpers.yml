@@ -1,0 +1,34 @@
+name: OpenBIOS Clang runtime helpers
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'libgcc/**'
+      - 'tests/test-clang-runtime-helpers.bash'
+      - '.github/workflows/clang-runtime-helpers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clang-runtime-helpers:
+    name: Check PowerPC Clang runtime ABI
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install compiler probe tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang llvm
+
+      - name: Validate helper test shell
+        run: bash -n tests/test-clang-runtime-helpers.bash
+
+      - name: Exercise Clang PowerPC runtime lowering
+        run: bash tests/test-clang-runtime-helpers.bash

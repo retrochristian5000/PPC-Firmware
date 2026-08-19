@@ -1,0 +1,32 @@
+name: OpenBIOS PowerPC bootstrap ABI
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'config/scripts/switch-arch'
+      - 'include/arch/ppc/types.h'
+      - 'include/kernel/stack.h'
+      - 'kernel/cross.h'
+      - 'tests/test-ppc-bootstrap-abi.bash'
+      - '.github/workflows/ppc-bootstrap-abi.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ppc-bootstrap-abi:
+    name: Check PPC cell width and endian conversion
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Validate bootstrap ABI test shell
+        run: bash -n tests/test-ppc-bootstrap-abi.bash
+
+      - name: Exercise bootstrap width and endian ABI
+        run: bash tests/test-ppc-bootstrap-abi.bash

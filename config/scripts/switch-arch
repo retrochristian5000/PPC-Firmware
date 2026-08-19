@@ -46,6 +46,21 @@ longbits()
     fi
 }
 
+cellbits()
+{
+    cpu=$1
+    case "$cpu" in
+        powerpc|ppc|powerpc64|ppc64|ppc64le)
+            # The PowerPC Forth ABI uses 32-bit cells even when the C target
+            # is PPC64. Host pointer conversion must follow the cell width.
+            echo 32
+            ;;
+        *)
+            longbits "$cpu"
+            ;;
+    esac
+}
+
 basearch()
 {
     arch=$1
@@ -68,7 +83,7 @@ crosscflags()
     hostlongbits=$(longbits $host)
 
     targetbigendian=$(is_bigendian $target)
-    targetlongbits=$(longbits $target)
+    targetlongbits=$(cellbits $target)
 
     if test "$targetbigendian" = "$hostbigendian"; then
         cflags="-USWAP_ENDIANNESS"

@@ -1,0 +1,36 @@
+name: OpenBIOS PowerPC context ABI
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'arch/ppc/qemu/context.c'
+      - 'arch/ppc/qemu/context.h'
+      - 'arch/ppc/qemu/switch.S'
+      - 'tests/test-ppc-context-abi.bash'
+      - '.github/workflows/ppc-context-abi.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ppc-context-abi:
+    name: Check PPC32 C and assembly context ABI
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Clang probe
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang
+
+      - name: Validate ABI test shell
+        run: bash -n tests/test-ppc-context-abi.bash
+
+      - name: Exercise PPC32 context ABI
+        run: bash tests/test-ppc-context-abi.bash

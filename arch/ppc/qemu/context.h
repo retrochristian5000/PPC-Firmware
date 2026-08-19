@@ -7,8 +7,8 @@ struct context {
     unsigned long return_addr;
     unsigned long sp;
     unsigned long pc;
-    /* General registers */
-    unsigned long regs[34];
+    /* General registers. switch.S uses slots through regs[34] for r31. */
+    unsigned long regs[35];
 #define REG_R3 3
 #define REG_R4 7
 #define REG_R5 8

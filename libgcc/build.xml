@@ -6,6 +6,7 @@
   <object source="__lshrdi3.c"/>
 
   <object source="__divdi3.c"/>
+  <object source="__moddi3.c"/>
   <object source="__udivdi3.c"/>
   <object source="__udivmoddi4.c"/>
   <object source="__umoddi3.c"/>

@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   ppc-context-abi:
-    name: Check PPC32 C and assembly context ABI
+    name: Check PPC32/PPC64 C and assembly context ABI
     runs-on: ubuntu-24.04
 
     steps:
@@ -32,5 +32,5 @@ jobs:
       - name: Validate ABI test shell
         run: bash -n tests/test-ppc-context-abi.bash
 
-      - name: Exercise PPC32 context ABI
+      - name: Exercise PPC32/PPC64 context ABI
         run: bash tests/test-ppc-context-abi.bash

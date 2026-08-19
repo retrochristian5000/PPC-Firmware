@@ -4,7 +4,15 @@
 struct context {
 #define SP_LOC(ctx) (&(ctx)->sp)
     unsigned long _sp;
+#ifdef __powerpc64__
+    /* PPC64 reserves 16 bytes before the ABI LR save slot. */
+    unsigned long _abi_pad0;
+#endif
     unsigned long return_addr;
+#ifdef __powerpc64__
+    /* Keep r1 at the 48-byte PPC64 linkage-area boundary. */
+    unsigned long _abi_pad1[3];
+#endif
     unsigned long sp;
     unsigned long pc;
     /* General registers. switch.S uses slots through regs[34] for r31. */

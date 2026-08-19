@@ -3,18 +3,16 @@
 #include "asm/processor.h"
 
 
-#ifdef CONFIG_PPC_64BITSUPPORT
-  #ifdef __powerpc64__
-    #define ULONG_SIZE 8
-    #define STACKFRAME_MINSIZE 48
-    #define STKOFF STACKFRAME_MINSIZE
-    #define SAVE_SPACE 320
-  #else
-    #define ULONG_SIZE 4
-    #define STACKFRAME_MINSIZE 16
-    #define STKOFF 8
-    #define SAVE_SPACE 156
-  #endif
+#ifdef __powerpc64__
+  #define ULONG_SIZE 8
+  #define STACKFRAME_MINSIZE 48
+  #define STKOFF STACKFRAME_MINSIZE
+  #define SAVE_SPACE 328
+#else
+  #define ULONG_SIZE 4
+  #define STACKFRAME_MINSIZE 16
+  #define STKOFF 8
+  #define SAVE_SPACE 156
 #endif
 
 /*
@@ -23,8 +21,7 @@
  * switches the stack, and restores everything from the new stack.
  * This function takes no argument. New stack pointer is
  * taken from global variable __context, and old stack pointer
- * is also saved to __context. This way we can just jump to
- * this routine to get back to the original context.
+ * is also saved to __context. This way we can just jump to this routine to get back to the original context.
  */
 
 _GLOBAL(__switch_context):
@@ -67,28 +64,28 @@ _GLOBAL(__switch_context):
 	PPC_STL  r7,  (STKOFF + 12 * ULONG_SIZE)(r1)
 	PPC_STL  r8,  (STKOFF + 13 * ULONG_SIZE)(r1)
 	PPC_STL  r9,  (STKOFF + 14 * ULONG_SIZE)(r1)
-	PPC_STL  r10,  (STKOFF + 15 * ULONG_SIZE)(r1)
-	PPC_STL  r11,  (STKOFF + 16 * ULONG_SIZE)(r1)
-	PPC_STL  r12,  (STKOFF + 17 * ULONG_SIZE)(r1)
-	PPC_STL  r13,  (STKOFF + 18 * ULONG_SIZE)(r1)
-	PPC_STL  r14,  (STKOFF + 19 * ULONG_SIZE)(r1)
-	PPC_STL  r15,  (STKOFF + 20 * ULONG_SIZE)(r1)
-	PPC_STL  r16,  (STKOFF + 21 * ULONG_SIZE)(r1)
-	PPC_STL  r17,  (STKOFF + 22 * ULONG_SIZE)(r1)
-	PPC_STL  r18,  (STKOFF + 23 * ULONG_SIZE)(r1)
-	PPC_STL  r19,  (STKOFF + 24 * ULONG_SIZE)(r1)
-	PPC_STL  r20,  (STKOFF + 25 * ULONG_SIZE)(r1)
-	PPC_STL  r21,  (STKOFF + 26 * ULONG_SIZE)(r1)
-	PPC_STL  r22,  (STKOFF + 27 * ULONG_SIZE)(r1)
-	PPC_STL  r23,  (STKOFF + 28 * ULONG_SIZE)(r1)
-	PPC_STL  r24,  (STKOFF + 29 * ULONG_SIZE)(r1)
-	PPC_STL  r25,  (STKOFF + 30 * ULONG_SIZE)(r1)
-	PPC_STL  r26,  (STKOFF + 31 * ULONG_SIZE)(r1)
-	PPC_STL  r27,  (STKOFF + 32 * ULONG_SIZE)(r1)
-	PPC_STL  r28,  (STKOFF + 33 * ULONG_SIZE)(r1)
-	PPC_STL  r29,  (STKOFF + 34 * ULONG_SIZE)(r1)
-	PPC_STL  r30,  (STKOFF + 35 * ULONG_SIZE)(r1)
-	PPC_STL  r31,  (STKOFF + 36 * ULONG_SIZE)(r1)
+	PPC_STL  r10, (STKOFF + 15 * ULONG_SIZE)(r1)
+	PPC_STL  r11, (STKOFF + 16 * ULONG_SIZE)(r1)
+	PPC_STL  r12, (STKOFF + 17 * ULONG_SIZE)(r1)
+	PPC_STL  r13, (STKOFF + 18 * ULONG_SIZE)(r1)
+	PPC_STL  r14, (STKOFF + 19 * ULONG_SIZE)(r1)
+	PPC_STL  r15, (STKOFF + 20 * ULONG_SIZE)(r1)
+	PPC_STL  r16, (STKOFF + 21 * ULONG_SIZE)(r1)
+	PPC_STL  r17, (STKOFF + 22 * ULONG_SIZE)(r1)
+	PPC_STL  r18, (STKOFF + 23 * ULONG_SIZE)(r1)
+	PPC_STL  r19, (STKOFF + 24 * ULONG_SIZE)(r1)
+	PPC_STL  r20, (STKOFF + 25 * ULONG_SIZE)(r1)
+	PPC_STL  r21, (STKOFF + 26 * ULONG_SIZE)(r1)
+	PPC_STL  r22, (STKOFF + 27 * ULONG_SIZE)(r1)
+	PPC_STL  r23, (STKOFF + 28 * ULONG_SIZE)(r1)
+	PPC_STL  r24, (STKOFF + 29 * ULONG_SIZE)(r1)
+	PPC_STL  r25, (STKOFF + 30 * ULONG_SIZE)(r1)
+	PPC_STL  r26, (STKOFF + 31 * ULONG_SIZE)(r1)
+	PPC_STL  r27, (STKOFF + 32 * ULONG_SIZE)(r1)
+	PPC_STL  r28, (STKOFF + 33 * ULONG_SIZE)(r1)
+	PPC_STL  r29, (STKOFF + 34 * ULONG_SIZE)(r1)
+	PPC_STL  r30, (STKOFF + 35 * ULONG_SIZE)(r1)
+	PPC_STL  r31, (STKOFF + 36 * ULONG_SIZE)(r1)
 	
 	/* swap context */
 	LOAD_REG_IMMEDIATE(r4, __context)
@@ -112,11 +109,11 @@ __set_context:
 	PPC_LL r0,  (STKOFF + 3 * ULONG_SIZE)(r4)
 	
 	/* ctr, cr and xer */
-	PPC_LL r5,  (STKOFF + 6 * ULONG_SIZE)(r4)
+	PPC_LL r5, (STKOFF + 6 * ULONG_SIZE)(r4)
 	mtctr	r5
-	PPC_LL r5,  (STKOFF + 7 * ULONG_SIZE)(r4)
+	PPC_LL r5, (STKOFF + 7 * ULONG_SIZE)(r4)
 	mtcr	r5
-	PPC_LL r5,  (STKOFF + 8 * ULONG_SIZE)(r4)
+	PPC_LL r5, (STKOFF + 8 * ULONG_SIZE)(r4)
 	mtxer	r5
 	
 	/* r5-r31 */
@@ -125,28 +122,28 @@ __set_context:
 	PPC_LL  r7,  (STKOFF + 12 * ULONG_SIZE)(r4)
 	PPC_LL  r8,  (STKOFF + 13 * ULONG_SIZE)(r4)
 	PPC_LL  r9,  (STKOFF + 14 * ULONG_SIZE)(r4)
-	PPC_LL  r10,  (STKOFF + 15 * ULONG_SIZE)(r4)
-	PPC_LL  r11,  (STKOFF + 16 * ULONG_SIZE)(r4)
-	PPC_LL  r12,  (STKOFF + 17 * ULONG_SIZE)(r4)
-	PPC_LL  r13,  (STKOFF + 18 * ULONG_SIZE)(r4)
-	PPC_LL  r14,  (STKOFF + 19 * ULONG_SIZE)(r4)
-	PPC_LL  r15,  (STKOFF + 20 * ULONG_SIZE)(r4)
-	PPC_LL  r16,  (STKOFF + 21 * ULONG_SIZE)(r4)
-	PPC_LL  r17,  (STKOFF + 22 * ULONG_SIZE)(r4)
-	PPC_LL  r18,  (STKOFF + 23 * ULONG_SIZE)(r4)
-	PPC_LL  r19,  (STKOFF + 24 * ULONG_SIZE)(r4)
-	PPC_LL  r20,  (STKOFF + 25 * ULONG_SIZE)(r4)
-	PPC_LL  r21,  (STKOFF + 26 * ULONG_SIZE)(r4)
-	PPC_LL  r22,  (STKOFF + 27 * ULONG_SIZE)(r4)
-	PPC_LL  r23,  (STKOFF + 28 * ULONG_SIZE)(r4)
-	PPC_LL  r24,  (STKOFF + 29 * ULONG_SIZE)(r4)
-	PPC_LL  r25,  (STKOFF + 30 * ULONG_SIZE)(r4)
-	PPC_LL  r26,  (STKOFF + 31 * ULONG_SIZE)(r4)
-	PPC_LL  r27,  (STKOFF + 32 * ULONG_SIZE)(r4)
-	PPC_LL  r28,  (STKOFF + 33 * ULONG_SIZE)(r4)
-	PPC_LL  r29,  (STKOFF + 34 * ULONG_SIZE)(r4)
-	PPC_LL  r30,  (STKOFF + 35 * ULONG_SIZE)(r4)
-	PPC_LL  r31,  (STKOFF + 36 * ULONG_SIZE)(r4)
+	PPC_LL  r10, (STKOFF + 15 * ULONG_SIZE)(r4)
+	PPC_LL  r11, (STKOFF + 16 * ULONG_SIZE)(r4)
+	PPC_LL  r12, (STKOFF + 17 * ULONG_SIZE)(r4)
+	PPC_LL  r13, (STKOFF + 18 * ULONG_SIZE)(r4)
+	PPC_LL  r14, (STKOFF + 19 * ULONG_SIZE)(r4)
+	PPC_LL  r15, (STKOFF + 20 * ULONG_SIZE)(r4)
+	PPC_LL  r16, (STKOFF + 21 * ULONG_SIZE)(r4)
+	PPC_LL  r17, (STKOFF + 22 * ULONG_SIZE)(r4)
+	PPC_LL  r18, (STKOFF + 23 * ULONG_SIZE)(r4)
+	PPC_LL  r19, (STKOFF + 24 * ULONG_SIZE)(r4)
+	PPC_LL  r20, (STKOFF + 25 * ULONG_SIZE)(r4)
+	PPC_LL  r21, (STKOFF + 26 * ULONG_SIZE)(r4)
+	PPC_LL  r22, (STKOFF + 27 * ULONG_SIZE)(r4)
+	PPC_LL  r23, (STKOFF + 28 * ULONG_SIZE)(r4)
+	PPC_LL  r24, (STKOFF + 29 * ULONG_SIZE)(r4)
+	PPC_LL  r25, (STKOFF + 30 * ULONG_SIZE)(r4)
+	PPC_LL  r26, (STKOFF + 31 * ULONG_SIZE)(r4)
+	PPC_LL  r27, (STKOFF + 32 * ULONG_SIZE)(r4)
+	PPC_LL  r28, (STKOFF + 33 * ULONG_SIZE)(r4)
+	PPC_LL  r29, (STKOFF + 34 * ULONG_SIZE)(r4)
+	PPC_LL  r30, (STKOFF + 35 * ULONG_SIZE)(r4)
+	PPC_LL  r31, (STKOFF + 36 * ULONG_SIZE)(r4)
 	
 	/* r4, r1 */
 	PPC_LL  r1,  STKOFF(r4)

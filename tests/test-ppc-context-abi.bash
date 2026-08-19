@@ -5,6 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTEXT_H="$ROOT/arch/ppc/qemu/context.h"
+CONTEXT_C="$ROOT/arch/ppc/qemu/context.c"
 SWITCH_S="$ROOT/arch/ppc/qemu/switch.S"
 
 for required in clang grep mktemp; do
@@ -22,6 +23,14 @@ done
 grep -Fq '#define STKOFF 8' "$SWITCH_S"
 grep -Fq '#define SAVE_SPACE 156' "$SWITCH_S"
 grep -Fq 'PPC_STL  r31, (STKOFF + 36 * ULONG_SIZE)(r1)' "$SWITCH_S"
+grep -Fq '#define SAVE_SPACE 156' "$CONTEXT_C"
+
+# GCC -mcall-sysv-noeabi and LLVM's PPC32 SVR4 lowering both require a
+# 16-byte-aligned C stack. init_context constructs r1 manually, so it must
+# align the address of context.sp rather than depending on byte-array placement.
+grep -Fq '#define PPC_STACK_ALIGNMENT 16' "$CONTEXT_C"
+grep -Fq '__builtin_offsetof(struct context, sp)' "$CONTEXT_C"
+grep -Fq 'PPC_STACK_ALIGNMENT - 1' "$CONTEXT_C"
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/openbios-ppc-context-abi.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT

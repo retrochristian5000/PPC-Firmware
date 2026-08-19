@@ -55,12 +55,16 @@ SECTIONS
 	_ebss = .;
     }
 
+    /* _end describes the normal firmware payload.  The hard-reset vector is
+     * detached at the final four bytes of the 32-bit address space, so
+     * aligning after it would create 0x100000000 and wrap _end to zero in an
+     * ELF32 symbol table. */
+    _end = .;
+    ASSERT(_end <= HRESET_ADDR, "OpenBIOS payload overlaps hard reset vector")
+
     . = HRESET_ADDR;
 
     .romentry : { *(.romentry) }
-
-    . = ALIGN(4096);
-    _end = .;
 
     /* We discard .note sections other than .note.ELFBoot,
      * because some versions of GCC generates useless ones. */

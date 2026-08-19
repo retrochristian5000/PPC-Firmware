@@ -20,6 +20,7 @@
 
 #define MAIN_STACK_SIZE 16384
 #define IMAGE_STACK_SIZE 4096*2
+#define PPC_STACK_ALIGNMENT 16
 
 #define debug printk
 
@@ -33,7 +34,7 @@
     #define ULONG_SIZE 4
     #define STACKFRAME_MINSIZE 16
     #define STKOFF 8
-    #define SAVE_SPACE 144
+    #define SAVE_SPACE 156
   #endif
 #endif
 
@@ -93,9 +94,14 @@ struct context *
 init_context(uint8_t *stack, uint32_t stack_size, int num_params)
 {
     struct context *ctx;
+    uintptr_t ctx_addr;
 
-    ctx = (struct context *)
-	(stack + stack_size - (sizeof(*ctx) + num_params*sizeof(unsigned long)));
+    ctx_addr = (uintptr_t)
+        (stack + stack_size -
+         (sizeof(*ctx) + num_params * sizeof(unsigned long)));
+    ctx_addr -= (ctx_addr + __builtin_offsetof(struct context, sp)) &
+                (PPC_STACK_ALIGNMENT - 1);
+    ctx = (struct context *)ctx_addr;
     memset(ctx, 0, sizeof(*ctx));
 
     /* Fill in reasonable default for flat memory model */

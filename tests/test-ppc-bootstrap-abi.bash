@@ -83,8 +83,10 @@ expect_cross_flags ppc64 ppc64 \
 expect_cross_flags x86 ppc64 \
     -DSWAP_ENDIANNESS -DNATIVE_BITWIDTH_EQUALS_HOST_BITWIDTH
 
-# Exercise the real cross.h swap macros used by forthstrap on little-endian
-# hosts. The PPC dictionary cell stays 32-bit in both PPC32 and PPC64 builds.
+# Exercise the real cross.h swap and pointer-translation macros used by
+# forthstrap on a 64-bit little-endian host. The PPC dictionary cell stays
+# 32-bit in both PPC32 and PPC64 builds, while host pointers are represented as
+# offsets from base_address instead of being truncated to a ucell.
 cat > "$scratch/endian.c" <<'SOURCE'
 #include <inttypes.h>
 #include <stdint.h>
@@ -99,20 +101,37 @@ typedef uint8_t u8;
 #define BITS 32
 #define SWAP_ENDIANNESS 1
 #define CONFIG_BIG_ENDIAN 1
+#define NATIVE_BITWIDTH_SMALLER_THAN_HOST_BITWIDTH 1
 #include "kernel/cross.h"
+
+unsigned long base_address;
 
 int main(void)
 {
     ucell cell_value = 0x11223344U;
-    unsigned char bytes[4] = { 0, 0, 0, 0 };
+    ucell storage = 0;
+    unsigned char *bytes = (unsigned char *)&storage;
+    unsigned char region[64];
+    void *pointer = &region[37];
+    ucell encoded;
+
+    if (sizeof(void *) <= sizeof(ucell))
+        return 10;
+
+    base_address = (unsigned long)(uintptr_t)region;
+    encoded = pointer2cell(pointer);
+    if (encoded != 37U)
+        return 11;
+    if (cell2pointer(encoded) != pointer)
+        return 12;
 
     if (target_ucell(cell_value) != 0x44332211U)
         return 1;
-    write_ucell(bytes, cell_value);
+    write_ucell(&storage, cell_value);
     if (bytes[0] != 0x11 || bytes[1] != 0x22 ||
         bytes[2] != 0x33 || bytes[3] != 0x44)
         return 2;
-    if (read_ucell(bytes) != cell_value)
+    if (read_ucell(&storage) != cell_value)
         return 3;
     return 0;
 }

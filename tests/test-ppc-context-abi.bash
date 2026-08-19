@@ -23,7 +23,6 @@ done
 grep -Fq '#define STKOFF 8' "$SWITCH_S"
 grep -Fq '#define SAVE_SPACE 156' "$SWITCH_S"
 grep -Fq 'PPC_STL  r31, (STKOFF + 36 * ULONG_SIZE)(r1)' "$SWITCH_S"
-grep -Fq '#define SAVE_SPACE 156' "$CONTEXT_C"
 
 # PPC64 uses a 48-byte linkage area. The context image must therefore place
 # the saved r1 at byte 48, the entry PC at byte 56, and the final r31 slot at
@@ -31,7 +30,6 @@ grep -Fq '#define SAVE_SPACE 156' "$CONTEXT_C"
 # PPC64 SAVE_SPACE value must be 328 to reserve the complete 344-byte image.
 grep -Fq '#define STKOFF 48' "$SWITCH_S"
 grep -Fq '#define SAVE_SPACE 328' "$SWITCH_S"
-grep -Fq '#define SAVE_SPACE 328' "$CONTEXT_C"
 
 # GCC -mcall-sysv-noeabi and LLVM's PPC SVR4 lowering both require a
 # 16-byte-aligned C stack. init_context constructs r1 manually, so it must

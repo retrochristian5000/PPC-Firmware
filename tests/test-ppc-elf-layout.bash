@@ -6,34 +6,43 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LDSCRIPT="$ROOT/arch/ppc/qemu/ldscript"
 
-# The QEMU/OpenBIOS PPC PROM ABI is intentionally two loadable regions:
-# one contiguous normal firmware image and one detached hard-reset vector.
-# Keep this explicit so GNU ld and LLD cannot silently choose different
-# PT_LOAD layouts for the same linker script.
+# Keep the PowerPC PROM load ABI explicit without collapsing writable data
+# into executable code.  LLD naturally separates these permission domains;
+# encode that W^X-safe layout in the linker script so it cannot regress.
 grep -Fxq 'ENTRY(_start)' "$LDSCRIPT"
 grep -Fxq 'PHDRS' "$LDSCRIPT"
-grep -Eq '^[[:space:]]*firmware[[:space:]]+PT_LOAD[[:space:]]+FLAGS\(7\);$' "$LDSCRIPT"
+grep -Eq '^[[:space:]]*text[[:space:]]+PT_LOAD[[:space:]]+FLAGS\(5\);$' "$LDSCRIPT"
+grep -Eq '^[[:space:]]*rodata[[:space:]]+PT_LOAD[[:space:]]+FLAGS\(4\);$' "$LDSCRIPT"
+grep -Eq '^[[:space:]]*data[[:space:]]+PT_LOAD[[:space:]]+FLAGS\(6\);$' "$LDSCRIPT"
 grep -Eq '^[[:space:]]*reset[[:space:]]+PT_LOAD[[:space:]]+FLAGS\(5\);$' "$LDSCRIPT"
 
-for section in '.text.vectors' '.text' '.rodata' '.data' '.bss'; do
-    if ! awk -v section="$section" '
-        index($0, section) { in_section=1 }
-        in_section && /}[[:space:]]*:firmware[[:space:]]*$/ { found=1; exit }
-        in_section && /^[[:space:]]*\.[A-Za-z0-9_.]+/ && !index($0, section) { exit }
-        END { exit found ? 0 : 1 }
-    ' "$LDSCRIPT"; then
-        printf 'error: %s is not assigned to the firmware PT_LOAD\n' "$section" >&2
-        exit 1
-    fi
-done
-
-if ! awk '
-    /\.romentry[[:space:]]*:/ { in_section=1 }
-    in_section && /}[[:space:]]*:reset[[:space:]]*$/ { found=1; exit }
-    END { exit found ? 0 : 1 }
-' "$LDSCRIPT"; then
-    echo 'error: .romentry is not assigned to the reset PT_LOAD' >&2
+if grep -Eq 'PT_LOAD[[:space:]]+FLAGS\(7\)' "$LDSCRIPT"; then
+    echo 'error: PPC OpenBIOS linker script contains an RWE PT_LOAD' >&2
     exit 1
 fi
 
-printf 'OpenBIOS PPC ELF PT_LOAD ABI: verified\n'
+check_section_segment()
+{
+    local section=$1
+    local segment=$2
+
+    if ! awk -v section="$section" -v segment="$segment" '
+        index($0, section) { in_section=1 }
+        in_section && $0 ~ "}[[:space:]]*:" segment "[[:space:]]*$" { found=1; exit }
+        in_section && /^[[:space:]]*\.[A-Za-z0-9_.]+/ && !index($0, section) { exit }
+        END { exit found ? 0 : 1 }
+    ' "$LDSCRIPT"; then
+        printf 'error: %s is not assigned to the %s PT_LOAD\n' \
+            "$section" "$segment" >&2
+        exit 1
+    fi
+}
+
+check_section_segment '.text.vectors' text
+check_section_segment '.text' text
+check_section_segment '.rodata' rodata
+check_section_segment '.data' data
+check_section_segment '.bss' data
+check_section_segment '.romentry' reset
+
+printf 'OpenBIOS PPC W^X ELF PT_LOAD ABI: verified\n'

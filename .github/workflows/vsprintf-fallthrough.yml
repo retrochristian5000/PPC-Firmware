@@ -1,0 +1,23 @@
+name: vsprintf fallthrough safety
+
+on:
+  push:
+    paths:
+      - 'libc/vsprintf.c'
+      - 'tests/test-vsprintf-fallthrough.bash'
+      - '.github/workflows/vsprintf-fallthrough.yml'
+  pull_request:
+    paths:
+      - 'libc/vsprintf.c'
+      - 'tests/test-vsprintf-fallthrough.bash'
+      - '.github/workflows/vsprintf-fallthrough.yml'
+
+jobs:
+  fallthrough:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check test syntax
+        run: bash -n tests/test-vsprintf-fallthrough.bash
+      - name: Verify compiler-recognized fallthroughs
+        run: bash tests/test-vsprintf-fallthrough.bash

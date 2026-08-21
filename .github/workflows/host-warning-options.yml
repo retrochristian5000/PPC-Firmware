@@ -1,0 +1,29 @@
+name: OpenBIOS host warning options
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'Makefile.target'
+      - 'tests/test-host-warning-options.bash'
+      - '.github/workflows/host-warning-options.yml'
+  pull_request:
+    paths:
+      - 'Makefile.target'
+      - 'tests/test-host-warning-options.bash'
+      - '.github/workflows/host-warning-options.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-warning-options:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Verify host compiler warning probing
+        run: bash tests/test-host-warning-options.bash

@@ -333,7 +333,7 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
 			case 'X':
 				flags |= LARGE;
-				/* fallthrough */
+				__attribute__((fallthrough));
 			case 'x':
 				base = 16;
 				break;
@@ -341,6 +341,7 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 			case 'd':
 			case 'i':
 				flags |= SIGN;
+				__attribute__((fallthrough));
 			case 'u':
 				break;
 

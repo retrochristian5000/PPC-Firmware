@@ -12,11 +12,17 @@ include config.mak
 ODIR := .
 HOSTCC ?= cc
 
+# Upstream historically hard-coded HOSTCC=gcc, so its warning list contains
+# GCC-specific diagnostics. This fork permits Clang host tools; only pass a
+# warning option when the selected host compiler accepts it under -Werror.
+host-cc-option = $(shell printf 'int openbios_host_warning_probe;\n' | $(HOSTCC) -Werror $(1) -x c -fsyntax-only - >/dev/null 2>&1 && printf '%s' '$(1)')
+
 HOSTCFLAGS+= -O2 -g -DFCOMPILER -DBOOTSTRAP $(CROSSCFLAGS)
 HOSTCFLAGS+= -Wall -Wredundant-decls -Wshadow -Wpointer-arith
 HOSTCFLAGS+= -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-labels
 HOSTCFLAGS+= -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs
-HOSTCFLAGS+= -Wbuiltin-declaration-mismatch -Wimplicit-fallthrough -Woverride-init -Wno-maybe-uninitialized
+HOSTCFLAGS+= -Wimplicit-fallthrough -Woverride-init -Wno-maybe-uninitialized
+HOSTCFLAGS+= $(call host-cc-option,-Wbuiltin-declaration-mismatch)
 HOSTCFLAGS+= -W
 HOSTINCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel -I$(SRCDIR)/kernel/include -iquote $(ODIR)/target/include
 

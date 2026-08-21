@@ -1,0 +1,29 @@
+name: PPC OpenBIOS ELF layout
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'arch/ppc/qemu/ldscript'
+      - 'tests/test-ppc-elf-layout.bash'
+      - '.github/workflows/ppc-elf-layout.yml'
+  pull_request:
+    paths:
+      - 'arch/ppc/qemu/ldscript'
+      - 'tests/test-ppc-elf-layout.bash'
+      - '.github/workflows/ppc-elf-layout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ppc-elf-layout:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout OpenBIOS
+        uses: actions/checkout@v7
+
+      - name: Verify PowerPC PROM program-header contract
+        run: bash tests/test-ppc-elf-layout.bash

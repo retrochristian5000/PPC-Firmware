@@ -335,11 +335,10 @@ usb_hid_process_keyboard_event(usbhid_inst_t *const inst,
 	if (current->modifiers & 0x01) /* Left-Ctrl */   modifiers |= MOD_CTRL;
 	if (current->modifiers & 0x02) /* Left-Shift */  modifiers |= MOD_SHIFT;
 	if (current->modifiers & 0x04) /* Left-Alt */    modifiers |= MOD_ALT;
-	if (current->modifiers & 0x08) /* Left-GUI */    ;
+	/* GUI modifiers are intentionally ignored. */
 	if (current->modifiers & 0x10) /* Right-Ctrl */  modifiers |= MOD_CTRL;
 	if (current->modifiers & 0x20) /* Right-Shift */ modifiers |= MOD_SHIFT;
 	if (current->modifiers & 0x40) /* Right-AltGr */ modifiers |= MOD_ALT;
-	if (current->modifiers & 0x80) /* Right-GUI */   ;
 
 	/* Did the event change at all? */
 	if (inst->lastkeypress &&

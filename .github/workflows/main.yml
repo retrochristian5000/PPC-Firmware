@@ -20,6 +20,9 @@ jobs:
       - name: Checkout OpenBIOS
         uses: actions/checkout@v7
 
+      - name: Verify IEEE 1275 PCI mapping binding
+        run: bash tests/test-pci-open-firmware-binding.bash
+
       - name: Install Clang
         run: |
           apt-get update

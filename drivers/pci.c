@@ -384,21 +384,15 @@ ob_pci_encode_unit(int *idx)
 	        ss, dev, fn, buf);
 }
 
-/* Map PCI MMIO or IO space from the BAR address. Note it is up to the caller
-   to understand whether the resulting address is in MEM or IO space and
-   use the appropriate accesses */
-static ucell ob_pci_map_for_node(phandle_t host, uint32_t ba, ucell size)
+/* Map a PCI bus address in an explicitly supplied PCI address space. */
+static ucell ob_pci_map_space_for_node(phandle_t host, int space_code,
+                                       uint32_t ba, ucell size)
 {
 	phys_addr_t phys;
-	uint32_t mask;
-	int flags, space_code;
 	ucell virt;
-	
-	pci_decode_pci_addr(ba, &flags, &space_code, &mask);
 
-	phys = pci_bus_addr_to_host_addr_for_node(host, space_code,
-			ba & ~mask);
-	
+	phys = pci_bus_addr_to_host_addr_for_node(host, space_code, ba);
+
 #if defined(CONFIG_OFMEM)
 	ofmem_claim_phys(phys, size, 0);
 
@@ -419,6 +413,16 @@ static ucell ob_pci_map_for_node(phandle_t host, uint32_t ba, ucell size)
 	return virt;
 }
 
+/* Map a raw PCI BAR value for internal OpenBIOS callers. */
+static ucell ob_pci_map_for_node(phandle_t host, uint32_t ba, ucell size)
+{
+	uint32_t mask;
+	int flags, space_code;
+
+	pci_decode_pci_addr(ba, &flags, &space_code, &mask);
+	return ob_pci_map_space_for_node(host, space_code, ba & ~mask, size);
+}
+
 static ucell ob_pci_map(uint32_t ba, ucell size)
 {
     return ob_pci_map_for_node(0, ba, size);
@@ -426,30 +430,98 @@ static ucell ob_pci_map(uint32_t ba, ucell size)
 
 static void ob_pci_unmap(ucell virt, ucell size) {
 #if defined(CONFIG_OFMEM)
-	ofmem_unmap(virt, size); 
+	ofmem_unmap(virt, size);
 #endif
 }
 
-/* ( pci-addr.lo pci-addr.mid pci-addr.hi size -- virt ) */
+/*
+ * Resolve an IEEE 1275 PCI map-in address tuple to a 32-bit PCI bus address.
+ *
+ * OpenBIOS configures BARs before device FCode runs, so a relocatable reg
+ * entry can be resolved by reading the already-programmed BAR.  Absolute
+ * assigned-addresses entries carry IS_NOT_RELOCATABLE and use phys.lo
+ * directly.  64-bit PCI mappings remain outside this driver's existing
+ * 32-bit mapping model and fail cleanly rather than being truncated.
+ */
+static int pci_resolve_map_address(ucell phys_lo, ucell phys_mid,
+                                   ucell phys_hi, int *space_code,
+                                   uint32_t *ba)
+{
+	pci_addr dev;
+	uint8_t reg;
+	uint32_t bar, base, mask;
 
+	*space_code = (phys_hi >> 24) & 0x03;
+
+	if (phys_mid != 0 ||
+	    (*space_code != IO_SPACE && *space_code != MEMORY_SPACE_32)) {
+		return -1;
+	}
+
+	if (phys_hi & IS_NOT_RELOCATABLE) {
+		*ba = (uint32_t)phys_lo;
+		return 0;
+	}
+
+	reg = phys_hi & 0xff;
+	if (reg < PCI_BASE_ADDR_0 || reg > PCI_BASE_ADDR_5 || (reg & 3)) {
+		return -1;
+	}
+
+	dev = PCI_ADDR(PCI_BUS(phys_hi), PCI_DEV(phys_hi), PCI_FN(phys_hi));
+	bar = pci_config_read32(dev, reg);
+
+	if (*space_code == IO_SPACE) {
+		if (!(bar & 0x01)) {
+			return -1;
+		}
+		mask = 0x00000003;
+	} else {
+		if (bar & 0x01) {
+			return -1;
+		}
+		/* The existing OpenBIOS mapper does not support 64-bit BARs. */
+		if ((bar & 0x06) == 0x04) {
+			return -1;
+		}
+		mask = 0x0000000f;
+	}
+
+	base = bar & ~mask;
+	if (!base || (uint64_t)base + phys_lo > 0xffffffffULL) {
+		return -1;
+	}
+
+	*ba = base + (uint32_t)phys_lo;
+	return 0;
+}
+
+/* ( pci-addr.lo pci-addr.mid pci-addr.hi size -- virt ) */
 static void
 ob_pci_bus_map_in(int *idx)
 {
-	uint32_t ba;
+	ucell phys_lo, phys_mid, phys_hi;
 	ucell size;
 	ucell virt;
-        phandle_t host;
+	uint32_t ba;
+	int space_code;
+	phandle_t host;
 
-	PCI_DPRINTF("ob_pci_bar_map_in idx=%p\n", idx);
+	PCI_DPRINTF("ob_pci_bus_map_in idx=%p\n", idx);
 
 	size = POP();
-	POP();
-	POP();
-	ba = POP();
+	phys_hi = POP();
+	phys_mid = POP();
+	phys_lo = POP();
 
-        host = ih_to_phandle(my_self());
-	virt = ob_pci_map_for_node(host, ba, size);
+	host = ih_to_phandle(my_self());
+	if (pci_resolve_map_address(phys_lo, phys_mid, phys_hi,
+	                            &space_code, &ba) < 0) {
+		PUSH(0);
+		return;
+	}
 
+	virt = ob_pci_map_space_for_node(host, space_code, ba, size);
 	PUSH(virt);
 }
 
@@ -488,6 +560,8 @@ NODE_METHODS(ob_pci_bus_node) = {
 	{ "close",		ob_pci_close		},
 	{ "decode-unit",	ob_pci_decode_unit	},
 	{ "encode-unit",	ob_pci_encode_unit	},
+	{ "map-in",		ob_pci_bus_map_in	},
+	/* Compatibility alias for older OpenBIOS FCode. */
 	{ "pci-map-in",		ob_pci_bus_map_in	},
 	{ "dma-alloc",		ob_pci_dma_alloc	},
 	{ "dma-free",		ob_pci_dma_free		},
@@ -497,12 +571,11 @@ NODE_METHODS(ob_pci_bus_node) = {
 };
 
 /* ( pci-addr.lo pci-addr.mid pci-addr.hi size -- virt ) */
-
 static void
 ob_pci_bridge_map_in(int *idx)
 {
-	/* As per the IEEE-1275 PCI specification, chain up to the parent */
-	call_parent_method("pci-map-in");
+	/* As per the IEEE-1275 PCI specification, chain up to the parent. */
+	call_parent_method("map-in");
 }
 
 NODE_METHODS(ob_pci_bridge_node) = {
@@ -510,6 +583,8 @@ NODE_METHODS(ob_pci_bridge_node) = {
 	{ "close",		ob_pci_close		},
 	{ "decode-unit",	ob_pci_decode_unit	},
 	{ "encode-unit",	ob_pci_encode_unit	},
+	{ "map-in",		ob_pci_bridge_map_in	},
+	/* Compatibility alias for older OpenBIOS FCode. */
 	{ "pci-map-in",		ob_pci_bridge_map_in	},
 	{ "dma-alloc",		ob_pci_dma_alloc	},
 	{ "dma-free",		ob_pci_dma_free		},
@@ -614,7 +689,7 @@ static void pci_host_set_reg(phandle_t phandle, pci_config_t *config)
     set_property(dev, "reg", (char *)props, ncells * sizeof(props[0]));
 
 #if defined(CONFIG_PPC)
-    /* Retain this host's translation context for later pci-map-in calls. */
+    /* Retain this host's translation context for later map-in calls. */
     set_int_property(dev, OB_PCI_IO_BASE_PROP, arch->io_base);
     set_int_property(dev, OB_PCI_MEM_BASE_PROP, arch->host_pci_base);
 #endif
@@ -957,8 +1032,10 @@ static void pci_set_assigned_addresses(phandle_t phandle,
 		pci_decode_pci_addr(config->assigned[i],
 				    &flags, &space_code, &mask);
 
+		/* assigned-addresses contains absolute, non-relocatable BARs. */
 		ncells += pci_encode_phys_addr(props + ncells,
-				     flags, space_code, config->dev,
+				     flags | IS_NOT_RELOCATABLE,
+				     space_code, config->dev,
 				     PCI_BASE_ADDR_0 + (i * sizeof(uint32_t)),
 				     config->assigned[i] & ~mask);
 
@@ -1625,7 +1702,7 @@ static void ob_scan_pci_bus(int *bus_num, unsigned long *mem_base,
             
 #define SUN4U_PCIBINTERRUPT(dev, irq_pin) \
             ((0x10 + (((dev >> 11) << 2) + irq_pin - 1)) & 0x1f)
-
+            
 static void ob_pci_simbaB_bus_interrupt(ucell dnode, u32 *props, int *ncells, u32 addr, u32 intno)
 {
     *ncells += pci_encode_phys_addr(props + *ncells, 0, 0, addr, 0, 0);

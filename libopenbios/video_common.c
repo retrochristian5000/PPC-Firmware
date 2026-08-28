@@ -6,7 +6,7 @@
  *
  *     Shared video routines
  *
- *   Copyright (C) 2002, 2003, 2004 Samuel Rydh (samuel@ibrium.se)
+ *   Copyright (C) 2002, 2003, 2004 Samuel Rydh
  *
  *   This program is free software; you can redistribute it and/or
  *   modify it under the terms of the GNU General Public License
@@ -64,8 +64,8 @@ video_mask_blit(void)
 	ucell fgcolor = POP();
 	ucell height = POP();
 	ucell width = POP();
-	unsigned char *mask = (unsigned char *)POP();
-	unsigned char *fbaddr = (unsigned char *)POP();
+	unsigned char *mask = cell2pointer(POP());
+	unsigned char *fbaddr = cell2pointer(POP());
 	ucell x, y;
 	int d, depthbytes;
 	size_t maskbytes;
@@ -120,7 +120,8 @@ video_invert_rect( void )
 		x + w > (int)VIDEO_DICT_VALUE(video.w) || y + h > (int)VIDEO_DICT_VALUE(video.h))
 		return;
 
-	pp = (char*)VIDEO_DICT_VALUE(video.mvirt) + VIDEO_DICT_VALUE(video.rb) * y;
+	pp = cell2pointer(VIDEO_DICT_VALUE(video.mvirt));
+	pp += VIDEO_DICT_VALUE(video.rb) * y;
 	for( ; h--; pp += VIDEO_DICT_VALUE(video.rb) ) {
 		int ww = w;
 		if( VIDEO_DICT_VALUE(video.depth) == 24 || VIDEO_DICT_VALUE(video.depth) == 32 ) {
@@ -172,7 +173,8 @@ video_fill_rect(void)
 		x + w > (int)VIDEO_DICT_VALUE(video.w) || y + h > (int)VIDEO_DICT_VALUE(video.h))
 		return;
 
-	pp = (char*)VIDEO_DICT_VALUE(video.mvirt) + VIDEO_DICT_VALUE(video.rb) * y;
+	pp = cell2pointer(VIDEO_DICT_VALUE(video.mvirt));
+	pp += VIDEO_DICT_VALUE(video.rb) * y;
 	for( ; h--; pp += VIDEO_DICT_VALUE(video.rb) ) {
 		int ww = w;
 		if( VIDEO_DICT_VALUE(video.depth) == 24 || VIDEO_DICT_VALUE(video.depth) == 32 ) {
@@ -228,7 +230,7 @@ void setup_video(void)
 	feval("to fb8-invertrect");
 
 	/* Static information */
-	PUSH((ucell)fontdata);
+	PUSH(pointer2cell(fontdata));
 	feval("to (romfont)");
 	PUSH(FONT_HEIGHT);
 	feval("to (romfont-height)");

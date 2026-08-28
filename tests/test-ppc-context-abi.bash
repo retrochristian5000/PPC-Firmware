@@ -28,7 +28,8 @@ grep -Fq 'PPC_STL  r31, (STKOFF + 36 * ULONG_SIZE)(r1)' "$SWITCH_S"
 # the saved r1 at byte 48, the entry PC at byte 56, and the final r31 slot at
 # byte 336. switch.S adds 16 bytes to SAVE_SPACE for CONFIG_PPC64, so the
 # PPC64 SAVE_SPACE value must be 328 to reserve the complete 344-byte image.
-grep -Fq '#define STKOFF 48' "$SWITCH_S"
+grep -Fq '#define STACKFRAME_MINSIZE 48' "$SWITCH_S"
+grep -Fq '#define STKOFF STACKFRAME_MINSIZE' "$SWITCH_S"
 grep -Fq '#define SAVE_SPACE 328' "$SWITCH_S"
 
 # GCC -mcall-sysv-noeabi and LLVM's PPC SVR4 lowering both require a

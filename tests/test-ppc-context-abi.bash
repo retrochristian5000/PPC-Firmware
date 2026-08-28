@@ -22,7 +22,7 @@ done
 # 152 for r31, with optional parameters starting at byte 156.
 grep -Fq '#define STKOFF 8' "$SWITCH_S"
 grep -Fq '#define SAVE_SPACE 156' "$SWITCH_S"
-grep -Fq 'PPC_STL  r31, (STKOFF + 36 * ULONG_SIZE)(r1)' "$SWITCH_S"
+grep -Eq 'PPC_STL[[:space:]]+r31,[[:space:]]+\(STKOFF \+ 36 \* ULONG_SIZE\)\(r1\)' "$SWITCH_S"
 
 # PPC64 uses a 48-byte linkage area. The context image must therefore place
 # the saved r1 at byte 48, the entry PC at byte 56, and the final r31 slot at

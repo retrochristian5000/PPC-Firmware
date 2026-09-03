@@ -1,0 +1,31 @@
+name: PowerMac3,1 Open Firmware contract
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'arch/ppc/qemu/init.c'
+      - 'drivers/macio.c'
+      - 'include/drivers/drivers.h'
+      - 'tests/test-powermac3_1-open-firmware.py'
+      - '.github/workflows/powermac3_1-open-firmware.yml'
+  pull_request:
+    paths:
+      - 'arch/ppc/qemu/init.c'
+      - 'drivers/macio.c'
+      - 'include/drivers/drivers.h'
+      - 'tests/test-powermac3_1-open-firmware.py'
+      - '.github/workflows/powermac3_1-open-firmware.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out OpenBIOS
+        uses: actions/checkout@v7
+      - name: Verify historical PowerMac3,1 Open Firmware contract
+        run: python3 tests/test-powermac3_1-open-firmware.py

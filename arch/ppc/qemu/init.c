@@ -39,6 +39,15 @@
 
 #define UUID_FMT "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x"
 
+/*
+ * Optional QEMU/OpenBIOS board identity ABI.  The named fw_cfg file contains
+ * a NUL-terminated ASCII Open Firmware model identifier and its file size
+ * includes that trailing NUL.  Absence of the file preserves legacy generic
+ * machine behaviour.
+ */
+#define FW_CFG_PPC_BOARD_ID_FILE "etc/ppc/board-id"
+#define POWERMAC3_1_BOARD_ID "PowerMac3,1"
+
 struct cpudef {
     unsigned int iu_version;
     const char *name;
@@ -90,6 +99,34 @@ int is_newworld(void)
 {
     return (machine_id == ARCH_MAC99) ||
            (machine_id == ARCH_MAC99_U3);
+}
+
+int is_powermac3_1(void)
+{
+    static int initialized;
+    static int matched;
+    uint32_t board_id_size = 0;
+    char *board_id;
+
+    if (initialized) {
+        return matched;
+    }
+    initialized = 1;
+
+    /* PowerMac3,1 is a UniNorth-1/Core99 board, never a U3 or PReP board. */
+    if (machine_id != ARCH_MAC99) {
+        return 0;
+    }
+
+    board_id = fw_cfg_read_file(FW_CFG_PPC_BOARD_ID_FILE, &board_id_size);
+    if (board_id != NULL) {
+        matched = board_id_size == sizeof(POWERMAC3_1_BOARD_ID) &&
+                  memcmp(board_id, POWERMAC3_1_BOARD_ID,
+                         sizeof(POWERMAC3_1_BOARD_ID)) == 0;
+        free(board_id);
+    }
+
+    return matched;
 }
 
 #define CORE99_VIA_CONFIG_CUDA     0x0
@@ -975,60 +1012,15 @@ arch_of_init(void)
     push_str("/");
     fword("find-device");
 
-    switch(machine_id) {
-    case ARCH_HEATHROW:	/* OldWorld */
-
-        /* model */
-
-        push_str("Power Macintosh");
-        fword("model");
-
-        /* compatible */
-
-        push_str("AAPL,PowerMac G3");
-        fword("encode-string");
-        push_str("MacRISC");
-        fword("encode-string");
-        fword("encode+");
-        push_str("compatible");
-        fword("property");
-
-        /* misc */
-
-        push_str("device-tree");
-        fword("encode-string");
-        push_str("AAPL,original-name");
-        fword("property");
-
-        PUSH(0);
-        fword("encode-int");
-        push_str("AAPL,cpu-id");
-        fword("property");
-
-        PUSH(fw_cfg_read_i32(FW_CFG_PPC_BUSFREQ));
-        fword("encode-int");
-        push_str("clock-frequency");
-        fword("property");
-        break;
-
-    case ARCH_MAC99:
-    case ARCH_MAC99_U3:
-    case ARCH_PREP:
-    default:
-
-        /* model */
+    if (is_powermac3_1()) {
+        /* PowerMac3,1 root identity: Apple TN2001 */
 
         push_str("PowerMac3,1");
         fword("model");
 
-        /* compatible */
-
         push_str("PowerMac3,1");
         fword("encode-string");
         push_str("MacRISC");
-        fword("encode-string");
-        fword("encode+");
-        push_str("MacRISC2");
         fword("encode-string");
         fword("encode+");
         push_str("Power Macintosh");
@@ -1036,8 +1028,6 @@ arch_of_init(void)
         fword("encode+");
         push_str("compatible");
         fword("property");
-
-        /* misc */
 
         push_str("bootrom");
         fword("device-type");
@@ -1046,7 +1036,82 @@ arch_of_init(void)
         fword("encode-int");
         push_str("clock-frequency");
         fword("property");
-        break;
+
+        /* Generic machine identity follows. */
+    } else {
+        switch(machine_id) {
+        case ARCH_HEATHROW:	/* OldWorld */
+
+            /* model */
+
+            push_str("Power Macintosh");
+            fword("model");
+
+            /* compatible */
+
+            push_str("AAPL,PowerMac G3");
+            fword("encode-string");
+            push_str("MacRISC");
+            fword("encode-string");
+            fword("encode+");
+            push_str("compatible");
+            fword("property");
+
+            /* misc */
+
+            push_str("device-tree");
+            fword("encode-string");
+            push_str("AAPL,original-name");
+            fword("property");
+
+            PUSH(0);
+            fword("encode-int");
+            push_str("AAPL,cpu-id");
+            fword("property");
+
+            PUSH(fw_cfg_read_i32(FW_CFG_PPC_BUSFREQ));
+            fword("encode-int");
+            push_str("clock-frequency");
+            fword("property");
+            break;
+
+        case ARCH_MAC99:
+        case ARCH_MAC99_U3:
+        case ARCH_PREP:
+        default:
+
+            /* model */
+
+            push_str("PowerMac3,1");
+            fword("model");
+
+            /* compatible */
+
+            push_str("PowerMac3,1");
+            fword("encode-string");
+            push_str("MacRISC");
+            fword("encode-string");
+            fword("encode+");
+            push_str("MacRISC2");
+            fword("encode-string");
+            fword("encode+");
+            push_str("Power Macintosh");
+            fword("encode-string");
+            fword("encode+");
+            push_str("compatible");
+            fword("property");
+
+            /* misc */
+
+            push_str("bootrom");
+            fword("device-type");
+
+            PUSH(fw_cfg_read_i32(FW_CFG_PPC_BUSFREQ));
+            fword("encode-int");
+            push_str("clock-frequency");
+            fword("property");
+            break;
+        }
     }
 
     /* Perhaps we can store UUID here ? */

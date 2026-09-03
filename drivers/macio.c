@@ -5,7 +5,6 @@
  *   This program is free software; you can redistribute it and/or
  *   modify it under the terms of the GNU General Public License
  *   version 2
- *
  */
 
 #include "config.h"
@@ -128,6 +127,10 @@ static void ob_unin_set_sawtooth_usb_clock_ids(void)
     };
     unsigned int i;
 
+    if (!is_powermac3_1()) {
+        return;
+    }
+
     /*
      * Tiger's Core99 power tree distinguishes KeyLargo's two internal OHCI
      * cells by these clock identifiers.  Attach them only to Sawtooth's
@@ -140,6 +143,52 @@ static void ob_unin_set_sawtooth_usb_clock_ids(void)
         if (dnode) {
             set_property(dnode, "AAPL,clock-id", usb[i].clock_id,
                          strlen(usb[i].clock_id) + 1);
+        }
+    }
+}
+
+static void ob_unin_set_sawtooth_aliases(void)
+{
+    static const struct {
+        const char *name;
+        const char *path;
+    } aliases[] = {
+        { "pci0", "/pci@f0000000" },
+        { "agp", "/pci@f0000000" },
+        { "pci1", "/pci@f2000000" },
+        { "pci2", "/pci@f4000000" },
+        { "bridge", "/pci@f2000000/pci-bridge@d" },
+        { "pci", "/pci@f2000000/pci-bridge@d" },
+        { "usb0", "/pci@f2000000/pci-bridge@d/usb@8" },
+        { "usb1", "/pci@f2000000/pci-bridge@d/usb@9" },
+        { "mac-io", "/pci@f2000000/pci-bridge@d/mac-io@7" },
+        { "mpic", "/pci@f2000000/pci-bridge@d/mac-io@7/interrupt-controller" },
+        { "scca", "/pci@f2000000/pci-bridge@d/mac-io@7/escc/ch-a" },
+        { "sccb", "/pci@f2000000/pci-bridge@d/mac-io@7/escc/ch-b" },
+        { "via-pmu", "/pci@f2000000/pci-bridge@d/mac-io@7/via-pmu" },
+    };
+    phandle_t aliases_node;
+    unsigned int i;
+
+    if (!is_powermac3_1()) {
+        return;
+    }
+
+    aliases_node = find_dev("/aliases");
+    if (!aliases_node) {
+        return;
+    }
+
+    /*
+     * Apple TN2001 records these aliases on a real PowerMac3,1.  OpenBIOS
+     * names the DEC 21154 node "pci-bridge", so retain the native OpenBIOS
+     * path while exposing the same firmware-level alias semantics.  Never
+     * manufacture aliases for devices QEMU did not instantiate.
+     */
+    for (i = 0; i < sizeof(aliases) / sizeof(aliases[0]); i++) {
+        if (find_dev(aliases[i].path)) {
+            set_property(aliases_node, aliases[i].name, aliases[i].path,
+                         strlen(aliases[i].path) + 1);
         }
     }
 }
@@ -229,7 +278,7 @@ dump_nvram(void)
   for (i = 0; i < 10; i++)
     {
       for (j = 0; j < 16; j++)
-      printk ("%02x ", nvram[(i*16+j)<<4]);
+        printk ("%02x ", nvram[(i*16+j)<<4]);
       printk (" ");
       for (j = 0; j < 16; j++)
         if (isprint(nvram[(i*16+j)<<4]))
@@ -392,6 +441,7 @@ ob_unin_init(void)
 
         ob_unin_set_sawtooth_usb_clock_ids();
         ob_unin_scan_extra_pci_roots();
+        ob_unin_set_sawtooth_aliases();
 }
 
 static void macio_gpio_init(const char *path)

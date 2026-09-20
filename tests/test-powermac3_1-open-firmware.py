@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INIT = (ROOT / "arch/ppc/qemu/init.c").read_text()
 MACIO = (ROOT / "drivers/macio.c").read_text()
+PCI = (ROOT / "drivers/pci.c").read_text()
 DRIVERS = (ROOT / "include/drivers/drivers.h").read_text()
 
 
@@ -66,5 +67,27 @@ for alias, path in (
     ("via-pmu", "/pci@f2000000/pci-bridge@d/mac-io@7/via-pmu"),
 ):
     require(alias_block, f'{{ "{alias}", "{path}" }}', f"Sawtooth alias {alias}")
+
+# Sawtooth's KeyLargo DAV path exposes the Screamer codec and its two DB-DMA
+# channel register windows.  Keep this board-specific: generic mac99 must not
+# acquire a historical Sawtooth sound node by accident.
+dav_start = MACIO.index("static void davbus_init_sawtooth")
+dav_end = MACIO.index("DECLARE_UNNAMED_NODE(ob_macio", dav_start)
+dav_block = MACIO[dav_start:dav_end]
+require(dav_block, "if (!is_powermac3_1())", "Sawtooth DAV gate")
+for name, value in (
+    ("DAV register offset", "DAVBUS_REG_OFFSET"),
+    ("DAV TX window", "DAVBUS_TX_OFFSET"),
+    ("DAV RX window", "DAVBUS_RX_OFFSET"),
+    ("Screamer compatible", '"screamer\\0awacs\\0"'),
+    ("Screamer Apple model", '"343S0184"'),
+    ("DAV clock id", '"dav au45au49"'),
+):
+    require(MACIO, value, name)
+for irq in ("0x18", "0x9", "0xa"):
+    require(dav_block, irq, f"DAV interrupt {irq}")
+require(MACIO, "davbus_init_sawtooth(path);", "KeyLargo DAV construction")
+require(PCI, 'snprintf(buf, sizeof(buf), "%s/davbus", path);',
+        "DAV interrupt-parent propagation")
 
 print("PowerMac3,1 Open Firmware contract: ok")

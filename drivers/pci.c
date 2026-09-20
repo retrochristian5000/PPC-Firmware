@@ -2139,6 +2139,9 @@ static phandle_t ob_pci_host_set_interrupt_map(phandle_t host)
                 snprintf(buf, sizeof(buf), "%s/via-pmu", path);
                 ob_pci_set_interrupt_parent_if_present(buf, dnode);
 
+                snprintf(buf, sizeof(buf), "%s/davbus", path);
+                ob_pci_set_interrupt_parent_if_present(buf, dnode);
+
                 snprintf(buf, sizeof(buf), "%s/gpio/extint-gpio1", path);
                 ob_pci_set_interrupt_parent_if_present(buf, dnode);
 

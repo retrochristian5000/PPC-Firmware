@@ -31,6 +31,13 @@
 #define IO_OPENPIC_SIZE    0x00040000
 #define IO_OPENPIC_OFFSET  0x00040000
 
+#define DAVBUS_REG_OFFSET   0x00014000
+#define DAVBUS_REG_SIZE     0x00001000
+#define DAVBUS_TX_OFFSET    0x00008800
+#define DAVBUS_TX_SIZE      0x00000100
+#define DAVBUS_RX_OFFSET    0x00008900
+#define DAVBUS_RX_SIZE      0x00000100
+
 static char *nvram;
 
 /*
@@ -347,6 +354,119 @@ openpic_init(const char *path, phys_addr_t addr)
         fword("finish-device");
 }
 
+static void macio_screamer_init(const char *path)
+{
+    phandle_t dnode;
+    int props[3];
+    char buf[256];
+
+    fword("new-device");
+    push_str("sound");
+    fword("device-name");
+    push_str("soundchip");
+    fword("device-type");
+
+    snprintf(buf, sizeof(buf), "%s/sound", path);
+    dnode = find_dev(buf);
+    set_property(dnode, "compatible", "screamer\0awacs\0", 15);
+
+    /*
+     * These properties are the NewWorld Screamer contract used by the
+     * classic Mac OS sound stack.  They describe the guest-visible Apple
+     * device interface; they do not identify the physical codec supplier.
+     */
+    set_property(dnode, "model", "343S0184", 9);
+    set_int_property(dnode, "vendor-id", 0x106b);
+    set_int_property(dnode, "device-id", 0x5);
+    set_int_property(dnode, "sub-frame", 0);
+    set_int_property(dnode, "object-model-version", 1);
+
+    props[0] = 0x2;
+    props[1] = 0x56220000;
+    props[2] = 0xac440000;
+    set_property(dnode, "sample-rates", (char *)props, sizeof(props));
+
+    set_int_property(dnode, "#-detects", 3);
+    set_int_property(dnode, "#-features", 3);
+    set_int_property(dnode, "#-outputs", 2);
+    set_int_property(dnode, "#-inputs", 1);
+    set_int_property(dnode, "icon-id", 0xffffbf4d);
+    set_int_property(dnode, "info-id", 0xffffbf44);
+    set_int_property(dnode, "name-id", 0xffffbf4d);
+    set_property(dnode, "default-monitor", "none", 5);
+
+    set_property(dnode, "sound-objects",
+                 "init operation 2 param 00000001 param-size 4\0"
+                 "feature index 0 model Proj7PowerControl\0"
+                 "feature index 1 model USBSubwoofer\0"
+                 "feature index 2 model NotifySSprockets\0"
+                 "detect bit-mask 2 bit-match 2 device 2 index 0 model InSenseBitsDetect\0"
+                 "detect bit-mask 4 bit-match 4 device 16 index 1 model InSenseBitsDetect\0"
+                 "detect bit-mask 1 bit-match 0 device 32 index 2 model InSenseBitsDetect\0"
+                 "input icon-id -16526 index 0 name-id -20520 port-connection 2 "
+                 "port-type 0x656D6963 zero-gain 0 model ExternalMic\0"
+                 "input icon-id -16526 index 1 name-id -20528 port-connection 2 "
+                 "port-type 0x73696E6A zero-gain 0 model InputPort\0"
+                 "input icon-id -20184 index 2 name-id -20540 port-connection 3 "
+                 "port-type 0x6d6f646d zero-gain 0 model InputPort\0"
+                 "input index 3 model NoInput\0"
+                 "output device-mask 2 device-match 0 icon-id -16563 index 0 name-id -20525 "
+                 "port-connection 2 port-type 0x6973706B model OutputPort\0"
+                 "output device-mask 2 device-match 2 icon-id -16563 index 1 name-id -20524 "
+                 "port-connection 1 port-type 0x6864706E model OutputPort\0",
+                 0x3e4);
+
+    fword("finish-device");
+}
+
+static void davbus_init_sawtooth(const char *path)
+{
+    phandle_t dnode;
+    int props[6];
+    char buf[128];
+
+    if (!is_powermac3_1()) {
+        return;
+    }
+
+    fword("new-device");
+    push_str("davbus");
+    fword("device-name");
+    push_str("soundbus");
+    fword("device-type");
+
+    snprintf(buf, sizeof(buf), "%s/davbus", path);
+    dnode = find_dev(buf);
+    set_property(dnode, "compatible", "davbus", 7);
+    set_property(dnode, "built-in", "", 0);
+
+    props[0] = DAVBUS_REG_OFFSET;
+    props[1] = DAVBUS_REG_SIZE;
+    props[2] = DAVBUS_TX_OFFSET;
+    props[3] = DAVBUS_TX_SIZE;
+    props[4] = DAVBUS_RX_OFFSET;
+    props[5] = DAVBUS_RX_SIZE;
+    set_property(dnode, "reg", (char *)props, sizeof(props));
+
+    props[0] = 0x18;
+    props[1] = 0x1;
+    props[2] = 0x9;
+    props[3] = 0x0;
+    props[4] = 0xa;
+    props[5] = 0x0;
+    set_property(dnode, "interrupts", (char *)props, sizeof(props));
+
+    props[0] = 0x2;
+    props[1] = 0x4;
+    props[2] = 0x4;
+    set_property(dnode, "AAPL,requested-priorities",
+                 (char *)props, 3 * sizeof(props[0]));
+    set_property(dnode, "AAPL,clock-id", "dav au45au49", 13);
+
+    macio_screamer_init(buf);
+    fword("finish-device");
+}
+
 DECLARE_UNNAMED_NODE(ob_macio, 0, sizeof(int));
 
 /* ( str len -- addr ) */
@@ -552,6 +672,7 @@ ob_macio_keylargo_init(const char *path, phys_addr_t addr)
     }
 
     escc_init(path, addr);
+    davbus_init_sawtooth(path);
     macio_ide_init(path, addr, 2);
     openpic_init(path, addr);
 

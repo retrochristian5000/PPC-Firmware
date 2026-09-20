@@ -6,6 +6,7 @@ on:
     paths:
       - 'arch/ppc/qemu/init.c'
       - 'drivers/macio.c'
+      - 'drivers/pci.c'
       - 'include/drivers/drivers.h'
       - 'tests/test-powermac3_1-open-firmware.py'
       - '.github/workflows/powermac3_1-open-firmware.yml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'arch/ppc/qemu/init.c'
       - 'drivers/macio.c'
+      - 'drivers/pci.c'
       - 'include/drivers/drivers.h'
       - 'tests/test-powermac3_1-open-firmware.py'
       - '.github/workflows/powermac3_1-open-firmware.yml'

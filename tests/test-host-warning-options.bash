@@ -17,7 +17,7 @@ done
 # HOSTCC is allowed to be Clang in this fork, so GCC-only warnings must not be
 # passed unconditionally to host-tool builds. The target warning remains in
 # CFLAGS because the PowerPC Clang compatibility driver filters it there.
-if grep -Eq '^HOSTCFLAGS\+=.*-Wbuiltin-declaration-mismatch' "$MAKEFILE"; then
+if grep -Eq '^HOSTCFLAGS\\+=[[:space:]]+-Wbuiltin-declaration-mismatch([[:space:]]|$)' "$MAKEFILE"; then
     echo 'error: GCC-only builtin declaration warning is unconditional in HOSTCFLAGS' >&2
     exit 1
 fi

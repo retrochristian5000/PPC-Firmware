@@ -213,10 +213,14 @@ static void write_dictionary(const char *filename)
 	 * Calculate Checksum
 	 */
 
-	walk_data=write_data;
-	while (walk_data<write_data+write_len) {
-		checksum+=read_long(walk_data);
-		walk_data+=sizeof(u32);
+	walk_data = write_data;
+	{
+		size_t remaining = write_len;
+		while (remaining >= sizeof(u32)) {
+			checksum += read_long(walk_data);
+			walk_data += sizeof(u32);
+			remaining -= sizeof(u32);
+		}
 	}
 	checksum=(u32)-checksum;
 

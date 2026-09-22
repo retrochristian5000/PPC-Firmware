@@ -10,6 +10,9 @@ on:
       - config/scripts/switch-arch
       - .github/workflows/openbios-build-plumbing.yml
 
+permissions:
+  contents: read
+
 jobs:
   build-plumbing:
     runs-on: ubuntu-latest

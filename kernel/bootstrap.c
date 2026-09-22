@@ -297,30 +297,41 @@ static void write_dictionary_hex(const char *filename)
 static ucell read_dictionary(char *fil)
 {
 	int ilen;
+	int fd;
 	ucell ret;
 	char *mem;
 	FILE *f;
 	struct stat finfo;
 
-	if (stat(fil, &finfo))
+	fd = open(fil, O_RDONLY);
+	if (fd < 0)
 		return 0;
+
+	if (fstat(fd, &finfo)) {
+		close(fd);
+		return 0;
+	}
 
 	ilen = finfo.st_size;
 
 	if ((mem = malloc(ilen)) == NULL) {
 		printk("panic: not enough memory.\n");
+		close(fd);
 		exit(1);
 	}
 
-	f = fopen(fil, "r");
+	f = fdopen(fd, "r");
 	if (!f) {
 		printk("panic: can't open dictionary.\n");
+		free(mem);
+		close(fd);
 		exit(1);
 	}
 
 	if (fread(mem, ilen, 1, f) != 1) {
 		printk("panic: can't read dictionary.\n");
 		fclose(f);
+		free(mem);
 		exit(1);
 	}
 	fclose(f);

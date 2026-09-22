@@ -73,7 +73,7 @@ strtol( const char *nptr, char **endptr, int base )
 	if( endptr )
 		*endptr = (char*)nptr;
 
-	return sum * sign;
+	return (long int)sum * sign;
 }
 
 long long int

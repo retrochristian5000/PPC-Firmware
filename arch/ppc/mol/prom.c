@@ -120,7 +120,11 @@ prom_find_device( const char *path )
 	if( (ph=prom_get_prop(prom_find_device("/aliases"), path, buf2, sizeof(buf2))) == -1 )
 		return -1;
 	*p = ch;
-	strncat( buf2, p, sizeof(buf2) );
+	{
+		size_t len = strlen(buf2);
+		if( len < sizeof(buf2) - 1 )
+			strncat( buf2, p, sizeof(buf2) - len - 1 );
+	}
 
 	if( buf2[0] != '/' ) {
 		printk("Error: aliases must be absolute!\n");

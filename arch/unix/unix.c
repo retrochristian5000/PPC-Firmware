@@ -144,20 +144,29 @@ static ucell read_dictionary(char *fil)
 	char *mem;
 	FILE *f;
 	struct stat finfo;
+	int fd;
 
-	if (stat(fil, &finfo))
+	fd = open(fil, O_RDONLY | __LFS);
+	if (fd < 0)
 		return 0;
+
+	if (fstat(fd, &finfo)) {
+		close(fd);
+		return 0;
+	}
 
 	ilen = finfo.st_size;
 
 	if ((mem = malloc(ilen)) == NULL) {
 		printk("panic: not enough memory.\n");
+		close(fd);
 		exit_terminal();
 		exit(1);
 	}
 
-	f = fopen(fil, "r");
+	f = fdopen(fd, "r");
 	if (!f) {
+		close(fd);
 		printk("panic: can't open dictionary.\n");
 		exit_terminal();
 		exit(1);

@@ -8,6 +8,9 @@ on:
       - "drivers/**.c"
       - ".github/workflows/driver-warning-safety.yml"
 
+permissions:
+  contents: read
+
 jobs:
   warning-safety:
     runs-on: ubuntu-latest

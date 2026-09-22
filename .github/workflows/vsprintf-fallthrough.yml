@@ -12,6 +12,9 @@ on:
       - 'tests/test-vsprintf-fallthrough.bash'
       - '.github/workflows/vsprintf-fallthrough.yml'
 
+permissions:
+  contents: read
+
 jobs:
   fallthrough:
     runs-on: ubuntu-latest

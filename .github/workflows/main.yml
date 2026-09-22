@@ -7,6 +7,11 @@ on:
     tags:
       - "!v*"
 
+permissions:
+  contents: write
+  packages: read
+  actions: read
+
 jobs:
   bootstrap-compiler-parity:
     runs-on: ubuntu-latest

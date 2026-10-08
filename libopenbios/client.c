@@ -267,16 +267,19 @@ handle_calls(prom_args_t *pb)
 	/* Ignore client-call-iface return */
 	POP();
 
-	/* If the catch result is non-zero, restore stack and exit */
+	/*
+	 * The first return cell is always the catch status, including failures.
+	 * Do not report a successful CIF transport while leaving the client's
+	 * catch cell uninitialized on a failed call-method/interpret.
+	 */
 	val = POP();
+	pb->args[pb->nargs] = val;
 	if (val) {
-		printk("%s %s failed with error " FMT_ucellx "\n", get_service(pb), arg2pointer(pb->args[0]), val);
+		printk("%s %s failed with error " FMT_ucellx "\n",
+		       get_service(pb), arg2pointer(pb->args[0]), val);
 		dstackcnt = dstacksave;
 		return 0;
 	}
-
-	/* Store catch result */
-	pb->args[pb->nargs] = val;
 
 #ifdef DEBUG_CIF
 	j = dstackcnt;
@@ -327,9 +330,17 @@ of_client_interface(int *params)
 	dump_service(pb);
 #endif
 
-	/* call-method exceptions are special */
-	if (!strcmp("call-method", get_service(pb)) || !strcmp("interpret", get_service(pb)))
+	/*
+	 * call-method and interpret return their catch result in ret[0].
+	 * Reject malformed packets before handle_calls writes that cell.
+	 */
+	if (!strcmp("call-method", get_service(pb)) ||
+	    !strcmp("interpret", get_service(pb))) {
+		if (pb->nret < 1) {
+			return -1;
+		}
 		return handle_calls(pb);
+	}
 
 	dstacksave = dstackcnt;
 	for (i = pb->nargs - 1; i >= 0; i--)

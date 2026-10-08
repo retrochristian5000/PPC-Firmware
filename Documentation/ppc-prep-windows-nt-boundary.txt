@@ -1,0 +1,36 @@
+PowerPC PReP Open Firmware and Windows NT boundary
+=================================================
+
+Windows NT 3.51 and 4.0 shipped for selected PowerPC Reference Platform
+(PReP) computers, distinct from Power Macintosh machines. The QEMU/OpenBIOS
+ARCH_PREP hardware profile must therefore not publish Apple's PowerMac3,1
+model or MacRISC compatibility strings in its root Open Firmware node.
+
+For the generic PReP machine, OpenBIOS publishes a generic "PReP" model
+and "PReP", "prep" compatible strings. These are **platform-family**
+identifiers, NOT assertions that QEMU emulates a particular IBM 40p,
+Motorola PowerStack, or Windows NT HAL-certified motherboard.
+
+The existing shared IEEE 1275 client-call interface services can support
+an external PowerPC firmware/loader stage. A successful transport return
+from call-method/interpret MUST still provide the catch status in its
+first return cell; catch != 0 indicates the method or evaluation failed.
+Packets requesting zero return cells for those services are rejected.
+These changes preserve the Apple/NewWorld and other firmware branches.
+
+This is a prerequisite, not an ARC BIOS: Windows NT PowerPC boots on
+hardware-specific systems using an ARC-compatible loader and a matching
+HAL, device inventory, interrupt/timer model, memory/endian conventions,
+disk/boot paths and driver set. A PReP root name or working IEEE 1275
+services cannot substitute for those. Do not treat OpenBIOS boot-device
+environment variables as ARC's NVRAM environment without verified
+translation, and do not reinterpret Apple-specific NDRV in PReP.
+
+The IBM 40p and generic prep QEMU machines are not aliases. PowerPC NT
+needs both actual platform-model validation and a verified ARC transition.
+The NT bootloaders and licensed OS binaries are not included here.
+
+Run tests/test-ppc-prep-nt-boundary.py for limited static-contract checks.
+Runtime checks should exercise call-method failures and the PReP root
+node before testing ARC handoff. Passing static CI is NOT a successful
+Windows NT boot.

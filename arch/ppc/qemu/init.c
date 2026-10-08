@@ -1075,9 +1075,35 @@ arch_of_init(void)
             fword("property");
             break;
 
+        case ARCH_PREP:
+            /*
+             * PReP is not a Power Macintosh.  Keep a generic platform
+             * identity here: an IBM 40p, Motorola PowerStack or another
+             * PReP board needs a separately verified model-specific ID.
+             * In particular, this does not advertise ARC/NT firmware.
+             */
+            push_str("PReP");
+            fword("model");
+
+            push_str("PReP");
+            fword("encode-string");
+            push_str("prep");
+            fword("encode-string");
+            fword("encode+");
+            push_str("compatible");
+            fword("property");
+
+            push_str("bootrom");
+            fword("device-type");
+
+            PUSH(fw_cfg_read_i32(FW_CFG_PPC_BUSFREQ));
+            fword("encode-int");
+            push_str("clock-frequency");
+            fword("property");
+            break;
+
         case ARCH_MAC99:
         case ARCH_MAC99_U3:
-        case ARCH_PREP:
         default:
 
             /* model */

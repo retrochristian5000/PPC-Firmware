@@ -1,0 +1,29 @@
+name: PowerPC PReP firmware / Open Firmware ABI boundary
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'arch/ppc/qemu/init.c'
+      - 'libopenbios/client.c'
+      - 'tests/test-ppc-prep-nt-boundary.py'
+      - '.github/workflows/ppc-prep-nt-boundary.yml'
+  pull_request:
+    paths:
+      - 'arch/ppc/qemu/init.c'
+      - 'libopenbios/client.c'
+      - 'tests/test-ppc-prep-nt-boundary.py'
+      - '.github/workflows/ppc-prep-nt-boundary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prep-of-abi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out PPC firmware
+        uses: actions/checkout@v4
+      - name: Verify PReP identity and OF client catch ABI
+        run: python3 tests/test-ppc-prep-nt-boundary.py

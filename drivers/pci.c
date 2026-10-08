@@ -1172,7 +1172,14 @@ int vga_config_cb (const pci_config_t *config)
         phandle_t ph;
 #endif
         if (config->assigned[0] != 0x00000000) {
-            setup_video();
+            /*
+             * One global Open Firmware text console backs all PCI displays.
+             * Preserve its dictionary bindings and geometry when discovering
+             * further video cards, but still load FCode for each PCI node.
+             */
+            if (!video.w) {
+                setup_video();
+            }
 
 #ifdef CONFIG_PPC
             if (config->assigned[6]) {

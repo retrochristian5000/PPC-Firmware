@@ -297,14 +297,23 @@ headerless
   fb-addr -1 = if
     map-fb
     fb-addr -1 <> if
-      fb-addr to frame-buffer-adr
-      default-font set-font
+      \\ Every display exports its own mapped BAR0 address.
+      fb-addr encode-int " address" property
 
-      frame-buffer-adr encode-int " address" property
+      \\ The framebuffer terminal in display.fs is global, not per head.
+      \\ Only the first opened display may take over /chosen/display.
+      display-ih 0= if
+        fb-addr to frame-buffer-adr
+        default-font set-font
 
-      openbios-video-width openbios-video-height
-      over char-width / over char-height /
-      fb8-install
+        openbios-video-width openbios-video-height
+        over char-width / over char-height /
+        fb8-install
+
+        \\ A zero-length marker identifies the Open Firmware boot
+        \\ display to Apple clients, not all installed PCI adapters.
+        0 0 " AAPL,boot-display" property
+      then
     then
   then
 ;

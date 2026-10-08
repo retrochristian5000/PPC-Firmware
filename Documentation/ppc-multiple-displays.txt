@@ -1,0 +1,26 @@
+PowerPC Macintosh firmware and multiple video adapters
+===================================================
+
+OpenBIOS enumerates multiple graphics devices and their independent PCI BARs,
+but its framebuffer terminal in forth/device/display.fs is global, using
+frame-buffer-adr, display-ih, a single palette, and /chosen/display.
+
+For QEMU, the VGA callback initializes this global console storage once.
+It still loads FCode and any per-card NDRV into every enumerated compatible
+VGA adapter.  On opening, each node publishes its own mapped framebuffer
+address and EDID, if available.  Only the first successfully opened display
+activates fb8-install and becomes the firmware console; it alone receives
+the zero-length AAPL,boot-display marker.  Opening a second display does not
+overwrite the active frame-buffer-adr or /chosen/display.
+
+This protects the boot-console handoff; it does not create independent
+Open Firmware terminal windows or establish working second-monitor display
+drivers in Mac OS 9.  All framebuffer terminal methods still use common
+global state.  Future actual multi-head support needs separate framebuffer
+instances and documented native drivers, not duplicated OF boot consoles.
+
+Validate source guards with tests/test-ppc-multiple-displays.py and test
+runtime firmware with two PCI graphics adapters and inspect each display
+node, chosen/display, NDRV and monitor scanout. QEMU's existing
+boot-order/powermac3_1-display QTests exercise device realization but do
+not establish guest firmware or OS runtime display operation.

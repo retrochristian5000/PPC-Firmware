@@ -23,11 +23,13 @@ fcode-version3
 
 " openbios-video-width" (find-xt) cell+ value openbios-video-width-xt
 " openbios-video-height" (find-xt) cell+ value openbios-video-height-xt
+" display-ih" (find-xt) cell+ value display-ih-xt
 " depth-bits" (find-xt) cell+ value depth-bits-xt
 " line-bytes" (find-xt) cell+ value line-bytes-xt
 
 : openbios-video-width openbios-video-width-xt @ ;
 : openbios-video-height openbios-video-height-xt @ ;
+: display-ih display-ih-xt @ ;
 : depth-bits depth-bits-xt @ ;
 : line-bytes line-bytes-xt @ ;
 
@@ -297,11 +299,11 @@ headerless
   fb-addr -1 = if
     map-fb
     fb-addr -1 <> if
-      \\ Every display exports its own mapped BAR0 address.
+      \ Every display exports its own mapped BAR0 address.
       fb-addr encode-int " address" property
 
-      \\ The framebuffer terminal in display.fs is global, not per head.
-      \\ Only the first opened display may take over /chosen/display.
+      \ The framebuffer terminal in display.fs is global, not per head.
+      \ Only the first opened display may take over /chosen/display.
       display-ih 0= if
         fb-addr to frame-buffer-adr
         default-font set-font
@@ -310,8 +312,8 @@ headerless
         over char-width / over char-height /
         fb8-install
 
-        \\ A zero-length marker identifies the Open Firmware boot
-        \\ display to Apple clients, not all installed PCI adapters.
+        \ A zero-length marker identifies the Open Firmware boot
+        \ display to Apple clients, not all installed PCI adapters.
         0 0 " AAPL,boot-display" property
       then
     then

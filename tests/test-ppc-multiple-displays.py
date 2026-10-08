@@ -27,6 +27,13 @@ install = install.split(": qemu-vga-driver-init", 1)[0]
 require(install, "qemu-edid-install")
 require(install, 'fb-addr encode-int " address" property')
 require(install, "display-ih 0= if")
+require(vga, '" display-ih" (find-xt) cell+ value display-ih-xt')
+require(vga, ": display-ih display-ih-xt @ ;")
+# The FCode tokenizer treats only one backslash as an end-of-line comment.
+# A doubled backslash becomes an unknown word, corrupting QEMU,VGA.bin.
+for line in vga.splitlines():
+    if line.lstrip().startswith(chr(92) * 2):
+        raise SystemExit("FCode double-backslash comment marker: " + line)
 assert install.index('fb-addr encode-int " address" property') < install.index(
     "display-ih 0= if"
 )

@@ -51,6 +51,7 @@
 
 #include "shared.h"
 #include "filesys.h"
+#include "ntfs_boot.h"
 
 #ifdef STAGE1_5
 /* safe turn off non-resident attribute list if MFT fragments < 4000 */
@@ -193,25 +194,28 @@ nsubstring (char *s1, char *s2)
 
 static int fixup_record(char *record, char *magic, int size)
 {
-    int start, count, offset;
-    __u16 fixup;
+    unsigned int start, count, expected, fixup, i;
+    unsigned char *bytes = (unsigned char *)record;
 
-    if(*(int *)record != *(int *)magic)
-	return 0;
-    start=*(__u16 *)(record+4);
-    count=*(__u16 *)(record+6);
-    count--;
-    if(size && blocksize*count != size)
-	return 0;
-    fixup = *(__u16 *)(record+start);
-    start+=2;
-    offset=blocksize-2;
-    while(count--){
-	if(*(__u16 *)(record+offset)!=fixup)
-	    return 0;
-	*(__u16 *)(record+offset) = *(__u16 *)(record+start);
-	start+=2;
-	offset+=blocksize;
+    if (size < 512 || size > MAX_INDEX_RECORD_SIZE ||
+        blocksize != 512 || size % blocksize ||
+        memcmp(record, magic, 4) != 0)
+        return 0;
+
+    start = ntfs_boot_le16(bytes + 4);
+    count = ntfs_boot_le16(bytes + 6);
+    expected = (unsigned int)size / blocksize + 1;
+    if (count != expected || start > (unsigned int)size ||
+        count > ((unsigned int)size - start) / 2)
+        return 0;
+
+    fixup = ntfs_boot_le16(bytes + start);
+    for (i = 1; i < count; ++i) {
+        unsigned int offset = i * blocksize - 2;
+        if (ntfs_boot_le16(bytes + offset) != fixup)
+            return 0;
+        ntfs_boot_put_le16(bytes + offset,
+                          ntfs_boot_le16(bytes + start + i * 2));
     }
     return 1;
 }
@@ -916,58 +920,45 @@ printf("reading uninitialized data 3\n");
 
 int ntfs_mount (void)
 {
-    char *sb = (char *)FSYS_BUF;
-    int mft_record;
-    int spc;
+    struct ntfs_boot_geometry geometry;
 
-  if (((current_drive & 0x80) || (current_slice != 0))
-       && (current_slice != /*PC_SLICE_TYPE_NTFS*/7)
-       && (current_slice != /*PC_SLICE_TYPE_NTFS*/0x17))
-      return 0;
+    if (((current_drive & 0x80) || (current_slice != 0))
+        && (current_slice != /*PC_SLICE_TYPE_NTFS*/7)
+        && (current_slice != /*PC_SLICE_TYPE_NTFS*/0x17))
+        return 0;
 
-    if (!devread (0, 0, 512, (char *) FSYS_BUF))
-	return 0;			/* Cannot read superblock */
+    if (devread(0, 0, 512, (char *)FSYS_BUF) != 1)
+        return 0;
 
-    if(sb[3]!='N' || sb[4]!='T' || sb[5]!='F' || sb[6]!='S')
-	return 0;
-    blocksize = *(__u16 *)(sb+0xb);
-    spc = *(unsigned char *)(sb+0xd);
-    clustersize = spc * blocksize;
-    mft_record_size = *(char *)(sb+0x40);
-    index_record_size = *(char *)(sb+0x44);
-    if(mft_record_size>0)
-	mft_record_size *= clustersize;
-    else
-	mft_record_size = 1 << (-mft_record_size);
+    // NTFS is little-endian even on PowerPC; reject unrepresentable layouts
+    // before deriving disk offsets or reading an MFT record.
+    if (!ntfs_boot_decode((const unsigned char *)FSYS_BUF, &geometry))
+        return 0;
 
-    index_record_size *= clustersize;
-    mft_record = *(__u32 *)(sb+0x30); /* only support 32 bit */
-    spc = clustersize / 512;
-
-    if(mft_record_size > MAX_MFT_RECORD_SIZE || index_record_size > MAX_INDEX_RECORD_SIZE) {
-	/* only support 1k MFT record, 4k INDEX record */
-	return 0;
-    }
+    blocksize = geometry.bytes_per_sector;
+    clustersize = geometry.cluster_size;
+    mft_record_size = geometry.mft_record_size;
+    index_record_size = geometry.index_record_size;
 
 #ifdef DEBUG_NTFS
-    printf("spc=%x mft_record=%x:%x\n", spc, *(__s64 *)(sb+0x30));
+    printf("spc=%x mft_sector=%x\n", geometry.sectors_per_cluster,
+           geometry.mft_first_sector);
 #endif
 
-    if (!devread (mft_record*spc, 0, mft_record_size, mmft->mft))
-	return 0;			/* Cannot read superblock */
+    if (devread(geometry.mft_first_sector, 0, mft_record_size, mmft->mft) != 1)
+        return 0;
 
-    if(!fixup_record( mmft->mft, "FILE", mft_record_size))
-	return 0;
+    if (!fixup_record(mmft->mft, "FILE", mft_record_size))
+        return 0;
 
 #ifndef NO_ALTERNATE_DATASTREAM
     is_ads_completion = 0;
 #endif
-    if(!search_attribute(mmft, at_data, NONAME)) return 0;
+    if (!search_attribute(mmft, at_data, NONAME))
+        return 0;
 
     *mft_run = mmft->runl;
-
     *path_ino = FILE_ROOT;
-
     return 1;
 }
 

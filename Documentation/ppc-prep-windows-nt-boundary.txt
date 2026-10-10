@@ -34,3 +34,39 @@ Run tests/test-ppc-prep-nt-boundary.py for limited static-contract checks.
 Runtime checks should exercise call-method failures and the PReP root
 node before testing ARC handoff. Passing static CI is NOT a successful
 Windows NT boot.
+
+NTFS and FAT boot-media boundary (October 2026 audit)
+-----------------------------------------------------
+PReP / ARC Windows NT 3.51 and 4.0 normally boot via a distinct PReP
+firmware/ARC stage, then a FAT-formatted system partition holding
+osloader.exe, then an OS partition that may contain NTFS. The NT loader
+is responsible for reading the latter; OpenBIOS NTFS is NOT by itself an
+ARC firmware, and BIOS INT 13 NTFS boot-sector behavior on x86 must not
+be substituted for PowerPC's ARC handoff.
+
+This fork already has GRUB-derived filesystem code in
+fs/grubfs/fsys_fat.c and fs/grubfs/fsys_ntfs.c. The example PowerPC QEMU
+configuration leaves CONFIG_FSYS_FAT and CONFIG_FSYS_NTFS disabled.
+Do not enable both by fiat: FAT system-partition discovery, Open Firmware
+disk interposition, the loader's ARC calling convention, and hardware/HAL
+matching need independent tests. PReP's 0x41 boot partition, FAT system
+partition, and FAT/NTFS OS partition are distinct.
+
+The existing NTFS backend predates this audit and documents its own
+unsupported features (for example encrypted streams and large MFT
+records). fs/grubfs/ntfs_boot.h now checks the 512-byte volume boot
+record's signature, 512-byte sectors, cluster size, MFT location and
+record/index sizes without relying on host endianness. The mount path
+rejects invalid geometry/short reads, and MFT fixup arrays are bounded.
+This is defensive input checking of a dormant optional reader, NOT
+proof that the remaining GRUB NTFS code is PowerPC-endian-correct, safe
+on arbitrary media, or capable of booting Windows NT.
+
+Host-side parser regression:
+    cc -std=c99 -Wall -Wextra -Werror -pedantic \
+       tests/test-ntfs-boot.c -o /tmp/openbios-ntfs-test
+    /tmp/openbios-ntfs-test
+A real NT boot still requires an independently validated ARC-compatible
+handoff, matching PReP system/HAL model, accessible FAT loader partition,
+NVRAM ARC paths, and later NTFS access by the NT loader. Preserve the
+Mac OS boot path and do not claim boot success from this test.

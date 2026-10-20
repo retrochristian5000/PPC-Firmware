@@ -12,6 +12,7 @@ on:
       - 'tests/test-ppc-multiple-displays.py'
       - 'include/drivers/drivers.h'
       - 'tests/test-powermac3_1-open-firmware.py'
+      - 'tests/test-ppc-bootorder-format.py'
       - '.github/workflows/powermac3_1-open-firmware.yml'
   pull_request:
     paths:
@@ -23,6 +24,7 @@ on:
       - 'tests/test-ppc-multiple-displays.py'
       - 'include/drivers/drivers.h'
       - 'tests/test-powermac3_1-open-firmware.py'
+      - 'tests/test-ppc-bootorder-format.py'
       - '.github/workflows/powermac3_1-open-firmware.yml'
 
 permissions:
@@ -34,8 +36,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check out OpenBIOS
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Verify historical PowerMac3,1 Open Firmware contract
         run: python3 tests/test-powermac3_1-open-firmware.py
       - name: Verify boot framebuffer isolation with multiple PCI displays
         run: python3 tests/test-ppc-multiple-displays.py
+      - name: Compile and validate bounded fw_cfg bootorder formatting
+        run: python3 tests/test-ppc-bootorder-format.py

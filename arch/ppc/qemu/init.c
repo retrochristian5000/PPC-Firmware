@@ -48,6 +48,84 @@
 #define FW_CFG_PPC_BOARD_ID_FILE "etc/ppc/board-id"
 #define POWERMAC3_1_BOARD_ID "PowerMac3,1"
 
+/*
+ * Expand fw_cfg bootorder entries into the three Open Firmware boot paths.
+ * fw_cfg_read_file() returns exactly size bytes; the buffer is not necessarily
+ * NUL-terminated. Each input pathname appears three times in the output, so
+ * neither input_size * 6 nor a repeated strncat(..., capacity) is safe.
+ *
+ * Kept independent of the Forth stack to permit a native host regression test.
+ */
+static char *
+ppc_format_bootorder(const char *data, uint32_t size)
+{
+    static const char *const suffix[] = {
+        ":,\\\\:tbxi ", ":,\\ppc\\bootinfo.txt ", ":,%BOOT "
+    };
+    const size_t suffix_bytes =
+        strlen(suffix[0]) + strlen(suffix[1]) + strlen(suffix[2]);
+    size_t required = 1, used = 0;
+    char *result = NULL;
+    int pass;
+
+    /* Limit untrusted firmware metadata and keep arithmetic well bounded. */
+    if (!data || size == 0 || size > 65536) {
+        return NULL;
+    }
+
+    for (pass = 0; pass < 2; pass++) {
+        size_t i = 0;
+
+        while (i < size) {
+            size_t start = i, len;
+            int part;
+
+            while (i < size && data[i] != '\n' && data[i] != '\0') {
+                i++;
+            }
+            len = i - start;
+            if (len && data[start + len - 1] == '\r') {
+                len--;
+            }
+
+            if (len) {
+                if (pass == 0) {
+                    required += 3 * len + suffix_bytes;
+                } else {
+                    for (part = 0; part < 3; part++) {
+                        size_t tail = strlen(suffix[part]);
+
+                        memcpy(result + used, data + start, len);
+                        used += len;
+                        memcpy(result + used, suffix[part], tail);
+                        used += tail;
+                    }
+                }
+            }
+
+            if (i < size && data[i] == '\0') {
+                break;
+            }
+            if (i < size) {
+                i++;
+            }
+        }
+
+        if (pass == 0) {
+            if (required == 1) {
+                return NULL;
+            }
+            result = malloc(required);
+            if (!result) {
+                return NULL;
+            }
+        }
+    }
+
+    result[used] = '\0';
+    return result;
+}
+
 struct cpudef {
     unsigned int iu_version;
     const char *name;
@@ -944,7 +1022,7 @@ arch_of_init(void)
     const char *stdin_path, *stdout_path, *boot_path;
     uint32_t temp = 0;
     char *boot_device, *bootorder_file;
-    uint32_t bootorder_sz, sz;
+    uint32_t bootorder_sz;
     ofmem_t *ofmem = ofmem_arch_get_private();
     ucell load_base;
 
@@ -1260,26 +1338,22 @@ arch_of_init(void)
 
         free(boot_device);
     } else {
-        sz = bootorder_sz * (3 * 2);
-        boot_device = malloc(sz);
-        memset(boot_device, 0, sz);
-
-        while ((boot_path = strsep(&bootorder_file, "\n")) != NULL) {
-            snprintf(buf, sizeof(buf),
-                     "%s:,\\\\:tbxi "
-                     "%s:,\\ppc\\bootinfo.txt "
-                     "%s:,%%BOOT ",
-                     boot_path, boot_path, boot_path);
-
-            strncat(boot_device, buf, sz);
+        /*
+         * A bootorder file is length-delimited, not a C string. Expand all
+         * entries without truncating the three fallback paths per device.
+         * Invalid/empty metadata must not overwrite NVRAM boot-device.
+         */
+        boot_device = ppc_format_bootorder(bootorder_file, bootorder_sz);
+        free(bootorder_file);
+        if (boot_device) {
+            push_str(boot_device);
+            fword("encode-string");
+            push_str("boot-device");
+            fword("property");
+            free(boot_device);
+        } else {
+            printk("warning: ignoring invalid fw_cfg bootorder\n");
         }
-
-        push_str(boot_device);
-        fword("encode-string");
-        push_str("boot-device");
-        fword("property");
-
-        free(boot_device);
     }
 
     /* Set up other properties */

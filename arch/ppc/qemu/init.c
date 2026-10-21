@@ -126,6 +126,16 @@ ppc_format_bootorder(const char *data, uint32_t size)
     return result;
 }
 
+/*
+ * Mac OS Startup Disk selects boot-device through Open Firmware NVRAM.
+ * Preserve any non-default guest selection ahead of QEMU boot fallbacks.
+ */
+static int
+ppc_has_guest_startup_disk(const char *device)
+{
+    return device && *device && strcmp(device, "disk") != 0;
+}
+
 struct cpudef {
     unsigned int iu_version;
     const char *name;
@@ -1304,15 +1314,20 @@ arch_of_init(void)
     push_str("/options");
     fword("find-device");
 
-    /* Boot order */
+    /*
+     * A New World guest can select its Startup Disk through persistent
+     * Open Firmware NVRAM.  Only the unconfigured "disk" default should
+     * be replaced by the QEMU bootorder or single-device fallback.
+     */
+    fword("boot-device");
+    boot_device = pop_fstr_copy();
     bootorder_file = fw_cfg_read_file("bootorder", &bootorder_sz);
 
-    if (bootorder_file == NULL) {
-        /* No bootorder present, use fw_cfg device if no custom
-           boot-device specified */
-        fword("boot-device");
-        boot_device = pop_fstr_copy();
-
+    if (ppc_has_guest_startup_disk(boot_device)) {
+        /* Drop unused fw_cfg metadata without touching /options. */
+        free(bootorder_file);
+    } else if (bootorder_file == NULL) {
+        /* Keep the existing default single-device fallback. */
         if (boot_device && strcmp(boot_device, "disk") == 0) {
             switch (fw_cfg_read_i16(FW_CFG_BOOT_DEVICE)) {
             case 'c':
@@ -1336,25 +1351,26 @@ arch_of_init(void)
             fword("property");
         }
 
-        free(boot_device);
     } else {
         /*
          * A bootorder file is length-delimited, not a C string. Expand all
          * entries without truncating the three fallback paths per device.
          * Invalid/empty metadata must not overwrite NVRAM boot-device.
          */
-        boot_device = ppc_format_bootorder(bootorder_file, bootorder_sz);
+        char *fw_boot_device = ppc_format_bootorder(bootorder_file,
+                                                    bootorder_sz);
         free(bootorder_file);
-        if (boot_device) {
-            push_str(boot_device);
+        if (fw_boot_device) {
+            push_str(fw_boot_device);
             fword("encode-string");
             push_str("boot-device");
             fword("property");
-            free(boot_device);
+            free(fw_boot_device);
         } else {
             printk("warning: ignoring invalid fw_cfg bootorder\n");
         }
     }
+    free(boot_device);
 
     /* Set up other properties */
 

@@ -17,6 +17,9 @@ assert "strncat" not in helper
 assert "strlen(suffix[0])" in helper
 assert "data[i] != '\\n'" in helper
 assert "data[i] != '\\0'" in helper
+assert 'ppc_has_guest_startup_disk(boot_device)' in SOURCE
+assert 'free(boot_device);' in SOURCE
+assert 'strcmp(device, "disk") != 0' in helper
 
 harness = r'''
 #include <stdint.h>
@@ -60,6 +63,17 @@ int main(void)
     failures += verify("empty input", "", 0, NULL);
     failures += verify("empty lines", "\n\n", 2, NULL);
     failures += verify("NULL input", NULL, 42, NULL);
+
+    /* The absence of a saved preference permits QEMU fallbacks. */
+    if (ppc_has_guest_startup_disk(NULL) ||
+        ppc_has_guest_startup_disk("") ||
+        ppc_has_guest_startup_disk("disk") ||
+        !ppc_has_guest_startup_disk("hd") ||
+        !ppc_has_guest_startup_disk("mac-io/ata-4@1f000/@0:8") ||
+        !ppc_has_guest_startup_disk("enet")) {
+        fprintf(stderr, "Startup Disk precedence regression failed\n");
+        failures++;
+    }
 
     memset(expected_long, 0, sizeof(expected_long));
     snprintf(expected_long, sizeof(expected_long),

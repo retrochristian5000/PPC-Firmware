@@ -12,9 +12,58 @@
 
 \ 7.4.11.1 Device alias
 
-: devalias    ( "{alias-name}< >{device-specifier}<cr>" -- )
-  ;
-  
+\ Nonvolatile aliases are separate: devalias updates only the live device tree.
+\ /aliases is also consulted by pathres-resolve-aliases for boot paths.
+: $devalias ( name-str name-len dev-str dev-len -- )
+  2 pick 0= if 2drop 2drop -22 throw then
+  dup 0= if 2drop 2drop -22 throw then
+  encode-string 2swap
+  s" /aliases" (find-dev) if
+    (property)
+  else
+    2drop 2drop -22 throw
+  then
+;
+
+: (.devalias) ( name-str name-len -- )
+  2dup type ."  "
+  s" /aliases" (find-dev) if
+    get-package-property if
+      ." <unavailable>" cr
+    else
+      decode-string type 2drop cr
+    then
+  else
+    2drop ." <unavailable>" cr
+  then
+;
+
+: (.devaliases) ( -- )
+  s" /aliases" (find-dev) if
+    >r 0 0
+    begin
+      r@ next-property
+    while
+      2dup (.devalias)
+    repeat
+    r> drop
+  else
+    ." /aliases package not found" cr
+  then
+;
+
+: devalias ( "{alias-name}< >{device-specifier}<cr>" -- )
+  parse-word dup 0= if
+    2drop (.devaliases) exit
+  then
+  skipws linefeed parse
+  dup 0= if
+    2drop (.devalias)
+  else
+    $devalias
+  then
+;
+
 : nvalias    ( "alias-name< >device-specifier<cr>" -- )
   ;
   

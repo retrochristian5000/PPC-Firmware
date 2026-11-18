@@ -94,7 +94,7 @@ require(PCI, 'snprintf(buf, sizeof(buf), "%s/davbus", path);',
 # Apple TN2001 shows /rom@ff800000/boot-rom@fff00000 on PowerMac3,1.
 # Keep the ROM child gated to this specific machine, rather than
 # publishing a speculative flash command set on generic mac99/PReP.
-rom_start = INIT.index("/* Apple TN2001 shows /rom@ff800000/boot-rom@fff00000")
+rom_start = INIT.index("Apple TN2001 shows /rom@ff800000/boot-rom@fff00000")
 rom_end = INIT.index("/* memory info */", rom_start)
 boot_rom = INIT[rom_start:rom_end]
 for label, needle in (

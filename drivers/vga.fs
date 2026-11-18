@@ -149,6 +149,10 @@ defer vbe-iow!
 " le-l!" (find-xt) value le-l!-xt
 : le-l! le-l!-xt execute ;
 
+\ active-package is a runtime OpenBIOS word, not an FCode token.
+" active-package" (find-xt) value active-package-xt
+: active-package active-package-xt execute ;
+
 : rage128-device? ( -- flag )
   " vendor-id" active-package get-package-property if false exit then
   decode-int nip nip h# 1002 <> if false exit then

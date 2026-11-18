@@ -75,6 +75,8 @@ for name in (
 ):
     require(vga, name)
 require(vga, '" le-l!" (find-xt) value le-l!-xt')
+require(vga, '" active-package" (find-xt) value active-package-xt')
+require(vga, ': active-package active-package-xt execute ;')
 native_start = install.index("rage128-device? if")
 native_end = install.index("  else\n    mmio-addr -1 = if", native_start)
 native_branch = install[native_start:native_end]

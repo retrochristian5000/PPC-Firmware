@@ -90,4 +90,26 @@ require(MACIO, "davbus_init_sawtooth(path);", "KeyLargo DAV construction")
 require(PCI, 'snprintf(buf, sizeof(buf), "%s/davbus", path);',
         "DAV interrupt-parent propagation")
 
+
+# Apple TN2001 shows /rom@ff800000/boot-rom@fff00000 on PowerMac3,1.
+# Keep the ROM child gated to this specific machine, rather than
+# publishing a speculative flash command set on generic mac99/PReP.
+rom_start = INIT.index("/* Apple TN2001 shows /rom@ff800000/boot-rom@fff00000")
+rom_end = INIT.index("/* memory info */", rom_start)
+boot_rom = INIT[rom_start:rom_end]
+for label, needle in (
+    ("Sawtooth-only flash identity gate",
+     'if (is_powermac3_1() && find_dev("/rom"))'),
+    ("Open Firmware /rom parent", 'push_str("/rom");'),
+    ("boot-rom package", 'push_str("boot-rom");'),
+    ("boot-ROM physical address", 'PUSH(0xfff00000U);'),
+    ("1 MiB boot-ROM physical size", 'PUSH(0x00100000U);'),
+    ("boot-ROM reg property", 'push_str("reg");'),
+    ("OF package completion", 'fword("finish-device");'),
+    ("root context restoration", 'push_str("/");'),
+):
+    require(boot_rom, needle, label)
+if "flash-" in boot_rom or "erase-" in boot_rom:
+    raise SystemExit("No verified Sawtooth flash command set: avoid inventing one")
+
 print("PowerMac3,1 Open Firmware contract: ok")

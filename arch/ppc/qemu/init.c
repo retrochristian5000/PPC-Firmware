@@ -1235,6 +1235,33 @@ arch_of_init(void)
     push_str("system-id");
     fword("property");
 
+    /*
+     * Apple TN2001 shows /rom@ff800000/boot-rom@fff00000 on a
+     * PowerMac3,1. The QEMU machine maps the actual 1 MiB PROM window
+     * at 0xfff00000; advertise its physical register range without
+     * pretending this is an ordinary PCI configuration-space device.
+     * This models the OF package, not flash programming/erase commands.
+     */
+    if (is_powermac3_1() && find_dev("/rom")) {
+        push_str("/rom");
+        fword("find-device");
+        fword("new-device");
+        push_str("boot-rom");
+        fword("device-name");
+
+        PUSH(0xfff00000U);
+        fword("encode-int");
+        PUSH(0x00100000U);
+        fword("encode-int");
+        fword("encode+");
+        push_str("reg");
+        fword("property");
+        fword("finish-device");
+
+        push_str("/");
+        fword("find-device");
+    }
+
     /* memory info */
 
     push_str("/memory");

@@ -143,6 +143,92 @@ defer vbe-iow!
 ;
 
 \
+\ ATI Rage 128 Pro (1002:5046) native CRTC register support.
+\ Do not use the unrelated Bochs VBE registers for this chipset.
+
+" le-l!" (find-xt) value le-l!-xt
+: le-l! le-l!-xt execute ;
+
+: rage128-device? ( -- flag )
+  " vendor-id" active-package get-package-property if false exit then
+  decode-int nip nip h# 1002 <> if false exit then
+  " device-id" active-package get-package-property if false exit then
+  decode-int nip nip h# 5046 =
+;
+
+: rage128-register! ( value offset -- )
+  mmio-addr + le-l!
+;
+
+: rage128-pixel-format ( -- native-bits | 0 )
+  depth-bits dup 8 = if drop h# 200 exit then
+  dup 16 = if drop h# 400 exit then
+  dup 32 = if drop h# 600 exit then
+  drop 0
+;
+
+: rage128-hsync-delay ( -- bits )
+  depth-bits dup 8 = if drop h# 12 exit then
+  dup 16 = if drop h# 9 exit then
+  drop h# 5
+;
+
+: rage128-mode-valid? ( -- flag )
+  openbios-video-width dup d# 320 >= swap d# 2048 <= and
+  openbios-video-width 7 and 0= and
+  openbios-video-height dup d# 200 >= swap d# 2048 <= and
+  rage128-pixel-format 0<> and
+  line-bytes openbios-video-height * h# 1000000 <= and
+;
+
+: rage128-color! ( r g b index -- )
+  h# b0 rage128-register!
+  2 lshift swap d# 12 lshift or
+  swap d# 22 lshift or
+  h# b8 rage128-register!
+;
+
+: rage128-init-mode ( -- flag )
+  rage128-mode-valid? 0= if false exit then
+
+  \ Approximate VGA-style porch timing, with native Rage 128 geometry
+  \ and 8-pixel CRTC units. QEMU does not yet emulate the full PLL/DDA.
+  openbios-video-width d# 160 + 8 / 1-
+  openbios-video-width 8 / 1- d# 16 lshift or
+  h# 200 rage128-register!
+
+  openbios-video-width 8 / 1- 2 + 3 lshift
+  rage128-hsync-delay or
+  d# 12 d# 16 lshift or h# 800000 or
+  h# 204 rage128-register!
+
+  openbios-video-height d# 45 + 1-
+  openbios-video-height 1- d# 16 lshift or
+  h# 208 rage128-register!
+
+  openbios-video-height 1- d# 10 +
+  d# 2 d# 16 lshift or h# 800000 or
+  h# 20c rage128-register!
+
+  openbios-video-width 8 / h# 22c rage128-register!
+  0 h# 224 rage128-register!
+  0 h# 228 rage128-register!
+
+  \ PPC-endian framebuffer writes: ATI's 16/32-bit aperture swap.
+  depth-bits dup 16 = if drop 1 else
+    32 = if 2 else 0 then
+  then
+  h# e0 rage128-register!
+  h# 100 h# 58 rage128-register!    \ enable 8-bit DAC components
+
+  \ The CRTC is enabled last, after geometry and framebuffer setup.
+  h# 3000000 rage128-pixel-format or
+  h# 50 rage128-register!
+  0 h# 54 rage128-register!
+  true
+;
+
+\
 \ PCI BAR mapping
 \
 
@@ -234,7 +320,7 @@ defer mol-color!
 \ Standard VGA
 
 : color!  ( r g b index -- )
-  vga-color!
+  rage128-device? if rage128-color! else vga-color! then
 ;
 
 [THEN]
@@ -265,6 +351,7 @@ defer mol-color!
 \
 
 : vbe-deinit ( -- )
+  rage128-device? if exit then
   \ Switching VBE on and off clears the framebuffer
   VBE_DISPI_DISABLED VBE_DISPI_INDEX_ENABLE vbe-iow!
   VBE_DISPI_ENABLED VBE_DISPI_INDEX_ENABLE vbe-iow!
@@ -278,22 +365,34 @@ headerless
 \
 
 : qemu-vga-driver-install ( -- )
-  mmio-addr -1 = if
-    map-mmio
-
-    \ BAR2 is the preferred QEMU interface.  If firmware resource
-    \ assignment did not make it available, use the legacy VGA/VBE
-    \ ports rather than calculating MMIO addresses from -1.
+  rage128-device? if
+    \ The ATI card needs real ATI registers, never Bochs VBE.
+    mmio-addr -1 = if map-mmio then
     mmio-addr -1 = if
-      ['] vga-legacy-ioc! to vga-ioc!
-      ['] vbe-legacy-iow! to vbe-iow!
-    else
-      ['] vga-mmio-ioc! to vga-ioc!
-      ['] vbe-mmio-iow! to vbe-iow!
-      qemu-edid-install
+      ." Rage 128: BAR2 unavailable" cr exit
     then
+    fb-addr -1 = if map-fb then
+    fb-addr -1 = if
+      ." Rage 128: BAR0 unavailable" cr exit
+    then
+    rage128-init-mode 0= if
+      ." Rage 128: unsupported firmware video mode" cr exit
+    then
+  else
+    mmio-addr -1 = if
+      map-mmio
 
-    vbe-init
+      \ The generic VGA model retains Bochs VBE and legacy fallback.
+      mmio-addr -1 = if
+        ['] vga-legacy-ioc! to vga-ioc!
+        ['] vbe-legacy-iow! to vbe-iow!
+      else
+        ['] vga-mmio-ioc! to vga-ioc!
+        ['] vbe-mmio-iow! to vbe-iow!
+        qemu-edid-install
+      then
+      vbe-init
+    then
   then
 
   fb-addr -1 = if
@@ -326,7 +425,8 @@ headerless
   depth-bits encode-int " depth" property
   line-bytes encode-int " linebytes" property
 
-  \ Is the VGA NDRV driver enabled? (PPC only)
+  \ Never attach the generic QEMU VGA Mac NDRV to an ATI device.
+  rage128-device? 0= if
   " /options" find-package drop s" vga-ndrv?" rot get-package-property not if
     decode-string 2swap 2drop    \ ( addr len )
     s" true" drop -rot comp 0= if
@@ -335,6 +435,7 @@ headerless
         encode-string " driver,AAPL,MacOS,PowerPC" property
       then
     then
+  then
   then
 
   ['] qemu-vga-driver-install is-install

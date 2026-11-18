@@ -22,6 +22,21 @@ leave the firmware without a graphical console despite a working BAR/FCode
 path. This fixes discovery only; a mapped framebuffer and working display
 methods are still necessary for visible output.
 
+
+The Sawtooth ATI Rage 128 Pro (1002:5046) now has a separate native
+Open Firmware FCode initialization path. It checks the PCI identity,
+BAR0/BAR2 availability and supported 8-, 16- or 32-bit modes,
+programs the ATI CRTC, timing, pitch, offset, palette and endian
+aperture, and enables the CRTC last. Generic QEMU VGA devices still
+use the pre-existing Bochs VBE path and fallback. The generic QEMU
+Mac OS NDRV is no longer attached to the ATI board.
+
+Timing currently uses approximate VGA-style porches derived from the
+requested width/height, suitable for a first test of QEMU's native
+CRTC subset. The historical chip's exact monitor PLL, DDA, and
+full scanout initialization still require further validation.
+Source reference: Linux 2.5.28 aty128fb.c and QEMU hw/display/ati.c.
+
 This protects the boot-console handoff; it does not create independent
 Open Firmware terminal windows or establish working second-monitor display
 drivers in Mac OS 9.  All framebuffer terminal methods still use common

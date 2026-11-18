@@ -57,4 +57,32 @@ for phrase in ("fb-addr to frame-buffer-adr", "fb8-install",
                '0 0 " AAPL,boot-display" property'):
     require(guard, phrase)
 require(display, 'display-ih encode-int " display" property')
+
+# Rage 128 1002:5046 must bypass the generic Bochs VBE path.
+for name in (
+    '" vendor-id" active-package get-package-property',
+    '" device-id" active-package get-package-property',
+    'decode-int nip nip h# 1002',
+    'decode-int nip nip h# 5046',
+    'h# 200 rage128-register!',
+    'h# 208 rage128-register!',
+    'h# 22c rage128-register!',
+    'h# 50 rage128-register!',
+    'h# 54 rage128-register!',
+    'h# e0 rage128-register!',
+    'h# b8 rage128-register!',
+    'rage128-mode-valid? 0= if',
+):
+    require(vga, name)
+require(vga, '" le-l!" (find-xt) value le-l!-xt')
+native_start = install.index("rage128-device? if")
+native_end = install.index("  else\n    mmio-addr -1 = if", native_start)
+native_branch = install[native_start:native_end]
+assert "rage128-init-mode" in native_branch
+assert "vbe-init" not in native_branch
+require(install[native_end:], "vbe-init")
+assert vga.index("h# 200 rage128-register!") < vga.index(
+    "h# 50 rage128-register!")
+require(vga, "rage128-device? if rage128-color! else vga-color! then")
+require(vga, "rage128-device? if exit then")
 print("OpenBIOS primary boot-display isolation contract: verified")

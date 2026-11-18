@@ -13,6 +13,15 @@ activates fb8-install and becomes the firmware console; it alone receives
 the zero-length AAPL,boot-display marker.  Opening a second display does not
 overwrite the active frame-buffer-adr or /chosen/display.
 
+The PCI device database marks supported VGA devices with Open Firmware
+device_type "display", while retaining their vendor/model and compatible
+strings. This is required by Apple's Tiger BootX display.c FindDisplays()
+search and by OpenBIOS install-console, which selects the first display
+node to create the screen alias. An "ATY" or "QEMU,VGA" device_type can
+leave the firmware without a graphical console despite a working BAR/FCode
+path. This fixes discovery only; a mapped framebuffer and working display
+methods are still necessary for visible output.
+
 This protects the boot-console handoff; it does not create independent
 Open Firmware terminal windows or establish working second-monitor display
 drivers in Mac OS 9.  All framebuffer terminal methods still use common

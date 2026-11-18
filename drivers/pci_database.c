@@ -241,13 +241,13 @@ static const pci_subclass_t net_subclass[] = {
 static const pci_dev_t vga_devices[] = {
     {
         PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_RAGE128_PF,
-        NULL, "ATY",      "ATY Rage128", "VGA\0",
+        NULL, "display",  "ATY Rage128", "VGA\0",
         0, 0, 0,
         NULL, NULL,
     },
     {
         PCI_VENDOR_ID_QEMU, PCI_DEVICE_ID_QEMU_VGA,
-        NULL, "QEMU,VGA", "QEMU VGA",    "VGA\0",
+        NULL, "display",  "QEMU VGA",    "VGA\0",
         0, 0, 0,
         NULL, NULL,
     },

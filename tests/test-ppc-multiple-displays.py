@@ -8,6 +8,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 pci = (root / "drivers/pci.c").read_text()
 vga = (root / "drivers/vga.fs").read_text()
+database = (root / "drivers/pci_database.c").read_text()
 display = (root / "forth/device/display.fs").read_text()
 
 
@@ -21,6 +22,20 @@ callback = callback.split("int ebus_config_cb(", 1)[0]
 require(callback, "if (!video.w) {\n                setup_video();")
 require(callback, """feval("['] vga-driver-fcode 2 cells + 1 byte-load");""")
 require(callback, '"driver,AAPL,MacOS,PowerPC"')
+
+# Tiger BootX searches for device_type="display". OpenBIOS install-console
+# also uses iterate-device-type "display" to create the screen alias.
+# PCI vendor/model identities remain unchanged; only the OF class is fixed.
+for pci_id, model in (
+    ("PCI_DEVICE_ID_ATI_RAGE128_PF", '"ATY Rage128"'),
+    ("PCI_DEVICE_ID_QEMU_VGA", '"QEMU VGA"'),
+):
+    device = database.split(pci_id + ",", 1)[1].split("    },", 1)[0]
+    require(device, 'NULL, "display",')
+    require(device, model)
+require(pci, 'fword("device-type");')
+firmware_console = (root / "forth/admin/iocontrol.fs").read_text()
+require(firmware_console, '0 " display" iterate-device-type ?dup if')
 
 install = vga.split(": qemu-vga-driver-install ( -- )", 1)[1]
 install = install.split(": qemu-vga-driver-init", 1)[0]

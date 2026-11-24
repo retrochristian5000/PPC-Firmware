@@ -446,9 +446,9 @@ static void
 hash_page_32(unsigned long ea, phys_addr_t phys, ucell mode)
 {
 #ifndef __powerpc64__
-    unsigned long *upte, cmp, hash1;
+    volatile uint32_t *upte;
+    unsigned long cmp, hash1;
     int i, vsid, found;
-    mPTE_t *pp;
 
     vsid = (ea >> 28) + SEGR_BASE;
     cmp = BIT(0) | (vsid << 7) | ((ea & 0x0fffffff) >> 22);
@@ -457,8 +457,7 @@ hash_page_32(unsigned long ea, phys_addr_t phys, ucell mode)
     hash1 ^= (ea >> 12) & 0xffff;
     hash1 &= (((mfsdr1() & 0x1ff) << 16) | 0xffff) >> 6;
 
-    pp = (mPTE_t*)(get_hash_base() + (hash1 << 6));
-    upte = (unsigned long*)pp;
+    upte = (volatile uint32_t *)(get_hash_base() + (hash1 << 6));
 
     /* replace old translation */
     for (found = 0, i = 0; !found && i < 8; i++)
@@ -468,7 +467,7 @@ hash_page_32(unsigned long ea, phys_addr_t phys, ucell mode)
     /* otherwise use a free slot */
     if (!found) {
         for (i = 0; !found && i < 8; i++)
-            if (!pp[i].v)
+            if (!(upte[i * 2] & BIT(0)))
                 found = 1;
     }
 
@@ -476,10 +475,18 @@ hash_page_32(unsigned long ea, phys_addr_t phys, ucell mode)
     if (!found)
         i = next_evicted_slot() + 1;
     i--;
+    /*
+     * Publish the valid bit last. A hardware hash lookup must never
+     * observe a new effective page paired with an old physical page.
+     */
+    upte[i * 2] = 0;
+    asm volatile("sync" ::: "memory");
+    upte[i * 2 + 1] = (phys & ~0xfffUL) | mode;
+    asm volatile("sync" ::: "memory");
     upte[i * 2] = cmp;
-    upte[i * 2 + 1] = (phys & ~0xfff) | mode;
-
-    asm volatile("tlbie %0" :: "r"(ea));
+    asm volatile("sync" ::: "memory");
+    asm volatile("tlbie %0" :: "r"(ea) : "memory");
+    asm volatile("sync" ::: "memory");
 #endif
 }
 
@@ -666,6 +673,21 @@ setup_mmu(unsigned long ramsize)
      */
     for (i = 0; i < OF_CODE_SIZE; i += PAGE_SIZE) {
         hash_page(OF_CODE_START + i, get_rom_base() + i, 0x02);
+    }
+
+    /*
+     * PPC32 returns from this C function on the initial physical RAM
+     * stack. Map both startup stacks before turning on relocation so
+     * the first stack access does not depend on a DSI handler.
+     * start.S reserves 32 KiB for exceptions and 64 KiB for the stack.
+     */
+    if (!is_ppc64()) {
+        unsigned long addr;
+
+        for (addr = hash_base - (32 + 64) * 1024;
+             addr < hash_base; addr += PAGE_SIZE) {
+            hash_page(addr, addr, 0x02);
+        }
     }
 
     /*

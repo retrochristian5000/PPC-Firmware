@@ -399,27 +399,29 @@ headerless
     then
   then
 
+  \ Rage 128 maps BAR0 before programming its CRTC; generic VGA may
+  \ map it here. Both paths must publish and install the framebuffer.
+  fb-addr -1 = if map-fb then
   fb-addr -1 = if
-    map-fb
-    fb-addr -1 <> if
-      \ Every display exports its own mapped BAR0 address.
-      fb-addr encode-int " address" property
+    ." VGA: framebuffer BAR0 unavailable" cr exit
+  then
 
-      \ The framebuffer terminal in display.fs is global, not per head.
-      \ Only the first opened display may take over /chosen/display.
-      display-ih 0= if
-        fb-addr to frame-buffer-adr
-        default-font set-font
+  \ Every display exports its own mapped BAR0 address.
+  fb-addr encode-int " address" property
 
-        openbios-video-width openbios-video-height
-        over char-width / over char-height /
-        fb8-install
+  \ The framebuffer terminal in display.fs is global, not per head.
+  \ Only the first opened display may take over /chosen/display.
+  display-ih 0= if
+    fb-addr to frame-buffer-adr
+    default-font set-font
 
-        \ A zero-length marker identifies the Open Firmware boot
-        \ display to Apple clients, not all installed PCI adapters.
-        0 0 " AAPL,boot-display" property
-      then
-    then
+    openbios-video-width openbios-video-height
+    over char-width / over char-height /
+    fb8-install
+
+    \ A zero-length marker identifies the Open Firmware boot
+    \ display to Apple clients, not all installed PCI adapters.
+    0 0 " AAPL,boot-display" property
   then
 ;
 

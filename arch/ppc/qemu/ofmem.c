@@ -51,6 +51,11 @@ static void unhash_page(unsigned long ea);
 
 #define OF_CODE_START	0xfff00000UL
 #define OF_CODE_SIZE    0x00100000
+/* Both QEMU PPC linker scripts reserve this hole for NewWorld NVRAM. */
+#define OF_NVRAM_START  0xfff04000UL
+#define OF_NVRAM_SIZE   0x00004000UL
+#define OF_NVRAM_OFFSET (OF_NVRAM_START - OF_CODE_START)
+#define OF_NVRAM_END    (OF_NVRAM_START + OF_NVRAM_SIZE)
 #define IO_BASE			0x80000000UL
 
 #ifdef __powerpc64__
@@ -227,9 +232,16 @@ void ofmem_arch_create_available_entry(phandle_t ph, ucell *availentry, phys_add
  * long: on PPC32 that wraps to zero and excludes every firmware address.
  */
 static int
+nvram_aperture_address(unsigned long va)
+{
+    return va >= OF_NVRAM_START && va - OF_NVRAM_START < OF_NVRAM_SIZE;
+}
+
+static int
 firmware_address(unsigned long va)
 {
-    return va >= OF_CODE_START && va - OF_CODE_START < OF_CODE_SIZE;
+    return va >= OF_CODE_START && va - OF_CODE_START < OF_CODE_SIZE &&
+           !nvram_aperture_address(va);
 }
 
 /* Private functions for mapping between physical/virtual addresses */
@@ -248,7 +260,11 @@ pa2va(phys_addr_t pa)
     phys_addr_t base = get_rom_base();
 
     if (pa >= base && pa - base < OF_CODE_SIZE) {
-        return OF_CODE_START + (unsigned long)(pa - base);
+        unsigned long va = OF_CODE_START + (unsigned long)(pa - base);
+
+        if (firmware_address(va)) {
+            return va;
+        }
     }
     return (unsigned long)pa;
 }
@@ -297,6 +313,11 @@ static phys_addr_t
 ea_to_phys(unsigned long ea, ucell *mode)
 {
     phys_addr_t phys;
+
+    if (nvram_aperture_address(ea)) {
+        *mode = ofmem_arch_io_translation_mode(ea);
+        return ea;
+    }
 
     if (firmware_address(ea)) {
         /* ROM into RAM */
@@ -660,7 +681,12 @@ setup_mmu(unsigned long ramsize)
     memset(ofmem, 0, sizeof(ofmem_t));
     ofmem->ramsize = ramsize;
 
-    memcpy((void *)get_rom_base(), (void *)OF_CODE_START, OF_CODE_SIZE);
+    /* Do not read device registers while copying the firmware image. */
+    memcpy((void *)get_rom_base(), (void *)OF_CODE_START, OF_NVRAM_OFFSET);
+    memset((void *)(get_rom_base() + OF_NVRAM_OFFSET), 0, OF_NVRAM_SIZE);
+    memcpy((void *)(get_rom_base() + OF_NVRAM_OFFSET + OF_NVRAM_SIZE),
+           (void *)OF_NVRAM_END,
+           OF_CODE_SIZE - OF_NVRAM_OFFSET - OF_NVRAM_SIZE);
 
     patch_rfi();
 
@@ -672,7 +698,13 @@ setup_mmu(unsigned long ramsize)
      * store cannot fall through to QEMU's read-only PROM region.
      */
     for (i = 0; i < OF_CODE_SIZE; i += PAGE_SIZE) {
-        hash_page(OF_CODE_START + i, get_rom_base() + i, 0x02);
+        unsigned long ea = OF_CODE_START + i;
+
+        if (nvram_aperture_address(ea)) {
+            hash_page(ea, ea, ofmem_arch_io_translation_mode(ea));
+        } else {
+            hash_page(ea, get_rom_base() + i, 0x02);
+        }
     }
 
     /*
@@ -717,5 +749,11 @@ ofmem_init(void)
     /* Map the OpenBIOS ROM in RAM copy */
     ofmem_claim_phys(ofmem->ramsize - OF_CODE_SIZE, OF_CODE_SIZE, 0);
     ofmem_claim_virt(OF_CODE_START, OF_CODE_SIZE, 0);
-    ofmem_map(ofmem->ramsize - OF_CODE_SIZE, OF_CODE_START, OF_CODE_SIZE, 0);
+    /* Keep the reserved device aperture out of the RAM shadow. */
+    ofmem_map(get_rom_base(), OF_CODE_START, OF_NVRAM_OFFSET, 0x02);
+    ofmem_map(OF_NVRAM_START, OF_NVRAM_START, OF_NVRAM_SIZE,
+              ofmem_arch_io_translation_mode(OF_NVRAM_START));
+    ofmem_map(get_rom_base() + OF_NVRAM_OFFSET + OF_NVRAM_SIZE,
+              OF_NVRAM_END,
+              OF_CODE_SIZE - OF_NVRAM_OFFSET - OF_NVRAM_SIZE, 0x02);
 }

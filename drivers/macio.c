@@ -38,7 +38,7 @@
 #define DAVBUS_RX_OFFSET    0x00008900
 #define DAVBUS_RX_SIZE      0x00000100
 
-static char *nvram;
+static volatile char *nvram;
 
 /*
  * NewWorld UniNorth machines expose three independent PCI configuration
@@ -303,11 +303,13 @@ dump_nvram(void)
 void
 macio_nvram_put(char *buf)
 {
-	int i;
-        unsigned int it_shift = macio_nvram_shift();
+    int i;
+    const unsigned int it_shift = macio_nvram_shift();
+    const int size = arch_nvram_size();
 
-	for (i=0; i < arch_nvram_size(); i++)
-		nvram[i << it_shift] = buf[i];
+    for (i = 0; i < size; i++) {
+        nvram[i << it_shift] = buf[i];
+    }
 #ifdef DUMP_NVRAM
 	printk("new nvram:\n");
 	dump_nvram();
@@ -317,11 +319,13 @@ macio_nvram_put(char *buf)
 void
 macio_nvram_get(char *buf)
 {
-	int i;
-        unsigned int it_shift = macio_nvram_shift();
+    int i;
+    const unsigned int it_shift = macio_nvram_shift();
+    const int size = arch_nvram_size();
 
-	for (i=0; i< arch_nvram_size(); i++)
-                buf[i] = nvram[i << it_shift];
+    for (i = 0; i < size; i++) {
+        buf[i] = nvram[i << it_shift];
+    }
 
 #ifdef DUMP_NVRAM
 	printk("current nvram:\n");

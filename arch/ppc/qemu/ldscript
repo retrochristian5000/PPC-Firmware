@@ -19,12 +19,14 @@ CSTACK_SIZE = 32768;	/* client stack size */
 /*
  * Keep the PowerPC PROM program-header ABI stable across linkers without
  * making writable firmware executable.  LLD already separates these
- * permission domains naturally; make them explicit so text remains RX,
+ * permission domains naturally; separate the vectors from text so the
+ * NVRAM aperture is not part of a PT_LOAD segment. Text remains RX,
  * constants remain R, mutable data remains RW, and the hard-reset branch
  * remains a detached RX load at the final four bytes of the address space.
  */
 PHDRS
 {
+    vectors PT_LOAD FLAGS(5);
     text PT_LOAD FLAGS(5);
     rodata PT_LOAD FLAGS(4);
     data PT_LOAD FLAGS(6);
@@ -38,7 +40,7 @@ SECTIONS
     _start = BASE_ADDR + 0x0100;
     .text.vectors ALIGN(4096): {
         KEEP(*(.text.vectors))
-    } :text
+    } :vectors
     ASSERT(SIZEOF(.text.vectors) >= 0x104,
            "OpenBIOS reset entry is missing")
     ASSERT(ADDR(.text.vectors) + SIZEOF(.text.vectors) <= BASE_ADDR + 0x4000,

@@ -62,12 +62,16 @@ defer fcode-c@             \ get byte
 \   convert FCode number to pointer to xt in FCode table.
 
 : fcode-ptr ( u16 -- *xt )
-  cells
-  fcode-table ?dup if + exit then
-  
-  \ we are not parsing fcode at the moment
-  dup 800 cells u>= abort" User FCODE# referenced."
-  fcode-sys-table +
+  \ Validate the index before scaling it by the cell size.
+  dup 1000 u>= abort" FCode: token number out of range"
+  fcode-table ?dup if
+    swap cells + exit
+  then
+
+  \ Outside an evaluation only the system table is available.
+  dup 800 u>= abort" FCode: program token without active table"
+  fcode-sys-table 0= abort" FCode: system token table not initialized"
+  cells fcode-sys-table +
 ;
   
 \ fcode>xt
@@ -199,14 +203,25 @@ defer fcode-c@             \ get byte
 \ writes currently created word as fcode# read from stream
 \ 
 
-: fcode! ( F:FCode# -- )
-  here fcode#
+: fcode-definition# ( -- token ) ( F:FCode# -- )
+  fcode-table 0= abort" FCode: definition without active token table"
+  fcode#
+  dup 800 u< abort" FCode: definition targets system token"
+  dup 1000 u>= abort" FCode: definition token out of range"
+  ;
 
+: fcode-bind-definition ( token -- )
+  fcode-table 0= abort" FCode: definition without active token table"
+  dup 800 u< abort" FCode: definition targets system token"
   \ Display fcode# in verbose mode
   ?fcode-verbose if
     dup ."        (fcode#) " . cr
   then
-  fcode-ptr !
+  fcode-ptr here swap !
+  ;
+
+: fcode! ( -- ) ( F:FCode# -- )
+  fcode-definition# fcode-bind-definition
   ;
 
   
@@ -240,9 +255,10 @@ defer fcode-c@             \ get byte
 \ new-token ( F:/FCode#/ -- ) 
 \   Create a new unnamed FCode function
 
-: new-token 
+: new-token
+  fcode-definition# >r
   0 0 header
-  fcode!
+  r> fcode-bind-definition
   ;
 
   
@@ -254,17 +270,19 @@ defer fcode-c@             \ get byte
   _fcode-debug? not if
     2drop 0 0
   then
+  fcode-definition# >r
   header
-  fcode!
+  r> fcode-bind-definition
   ;
 
   
 \ external-token (F:/FCode-string FCode#/ -- )
 \   Create a new named FCode function
 
-: external-token 
-  fcode-string header
-  fcode!
+: external-token
+  fcode-string fcode-definition# >r
+  header
+  r> fcode-bind-definition
   ;
 
   

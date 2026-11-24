@@ -239,6 +239,9 @@ defer vbe-iow!
 : map-fb ( -- )
   cfg-bar0 pci-bar>pci-addr if   \ ( pci-addr.lo pci-addr.mid pci-addr.hi size )
     " map-in" $call-parent
+    \ PCI map-in may return zero on failure; never use RAM address zero
+    \ as a framebuffer or publish it in the display device tree.
+    dup 0= if drop -1 then
     to fb-addr
   then
 ;

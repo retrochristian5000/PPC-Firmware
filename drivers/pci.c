@@ -399,6 +399,9 @@ static ucell ob_pci_map_space_for_node(phandle_t host, int space_code,
 #if defined(CONFIG_PPC)
 	/* For some reason PPC gets upset when virt != phys for map-in... */
 	virt = ofmem_claim_virt(phys, size, 0);
+	if (virt == (ucell)-1) {
+		return 0;
+	}
 #else
 	virt = ofmem_claim_virt(-1, size, size);
 #endif

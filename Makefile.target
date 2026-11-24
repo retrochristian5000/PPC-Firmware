@@ -11,6 +11,8 @@ include config.mak
 
 ODIR := .
 HOSTCC ?= cc
+HOSTAR ?= ar
+HOSTRANLIB ?= ranlib
 
 # Upstream historically hard-coded HOSTCC=gcc, so its warning list contains
 # GCC-specific diagnostics. This fork permits Clang host tools; only pass a

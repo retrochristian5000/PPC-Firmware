@@ -1768,6 +1768,15 @@ static void ob_scan_sabre_pci_bus(int *bus_num, unsigned long *mem_base,
 }
 #endif
 
+/* UniNorth-1 has three independent Type 0 host configuration domains. */
+static int ob_pci_is_uninorth_root(void)
+{
+    return arch->vendor_id == PCI_VENDOR_ID_APPLE &&
+           (arch->device_id == PCI_DEVICE_ID_APPLE_UNI_N_PCI ||
+            arch->device_id == PCI_DEVICE_ID_APPLE_UNI_N_AGP ||
+            arch->device_id == PCI_DEVICE_ID_APPLE_UNI_N_I_PCI);
+}
+
 static void ob_configure_pci_bridge(pci_addr addr,
                                     int *bus_num, unsigned long *mem_base,
                                     unsigned long *io_base,
@@ -1809,6 +1818,20 @@ static void ob_configure_pci_bridge(pci_addr addr,
 
     /* Set the base limit registers */
     pci_config_write16(addr, PCI_MEMORY_BASE, ((*mem_base >> 16) & ~(0xf)));
+    /*
+     * On UniNorth, child callbacks may access MMIO before enumeration
+     * returns (KeyLargo, OHCI and display devices). Open a temporary
+     * non-prefetchable window bounded by this root's memory aperture.
+     * Tighten it to the assigned resources after the child scan.
+     */
+    if (ob_pci_is_uninorth_root() &&
+        pci_config_read16(addr, PCI_VENDOR_ID) == PCI_VENDOR_ID_DEC &&
+        pci_config_read16(addr, PCI_DEVICE_ID) == PCI_DEVICE_ID_DEC_21154 &&
+        *mem_base < arch->pci_mem_base + arch->mem_len) {
+        pci_config_write16(addr, PCI_MEMORY_LIMIT,
+                          ((arch->pci_mem_base + arch->mem_len - 1) >> 16) &
+                          ~0xf);
+    }
     pci_config_write16(addr, PCI_IO_BASE_UPPER, (*io_base >> 16));
     pci_config_write8(addr, PCI_IO_BASE, ((*io_base >> 8) & ~(0xf)));
 
@@ -2014,7 +2037,11 @@ static phandle_t ob_configure_pci_device(const char* parent_path,
         break;
     }
 
-    if (htype & PCI_HEADER_TYPE_BRIDGE) {
+    if (is_host_bridge && ob_pci_is_uninorth_root()) {
+        /* Host bridge BARs are not downstream endpoint resources. */
+        num_bars = 0;
+        rom_bar = 0;
+    } else if (htype & PCI_HEADER_TYPE_BRIDGE) {
         num_bars = 2;
         rom_bar  = PCI_ROM_ADDRESS1;
     } else {
@@ -2022,8 +2049,10 @@ static phandle_t ob_configure_pci_device(const char* parent_path,
         rom_bar  = PCI_ROM_ADDRESS;
     }
 
-    ob_pci_configure(addr, &config, num_bars, rom_bar,
-                     mem_base, io_base);
+    if (!(is_host_bridge && ob_pci_is_uninorth_root())) {
+        ob_pci_configure(addr, &config, num_bars, rom_bar,
+                         mem_base, io_base);
+    }
 
     ob_pci_add_properties(phandle, addr, pci_dev, &config, num_bars);
 
@@ -2059,7 +2088,22 @@ static phandle_t ob_configure_pci_device(const char* parent_path,
             ++(*bus_num);
         }
 
-        ob_configure_pci_bridge(addr, bus_num, mem_base, io_base, bus, &config);
+        if (is_host_bridge && ob_pci_is_uninorth_root()) {
+            /*
+             * A root is not a Type 1 bridge: offsets 0x18..0x33
+             * must not be programmed as bus numbers or bridge windows.
+             * Its CPU apertures are established by UniNorth itself.
+             */
+            config.primary_bus = bus;
+            config.secondary_bus = bus;
+            set_int_property(phandle, "bus-range", bus);
+            ob_scan_pci_bus(bus_num, mem_base, io_base, config.path, bus);
+            config.subordinate_bus = *bus_num;
+            pci_set_bus_range(&config);
+        } else {
+            ob_configure_pci_bridge(addr, bus_num, mem_base, io_base, bus,
+                                    &config);
+        }
     }
 
     fword("finish-device");
@@ -2278,6 +2322,13 @@ int ob_pci_init(void)
     /* I/O ports under 0x400 are used by devices mapped at fixed
        location. */
     io_base = 0x400;
+    /*
+     * Preserve UniNorth's previous 4 KiB root allocation alignment.
+     * In particular AGP port 0x510 is reserved for QEMU fw_cfg.
+     */
+    if (ob_pci_is_uninorth_root()) {
+        io_base = 0x1000;
+    }
 
     bus = 0;
 

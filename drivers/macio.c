@@ -117,7 +117,9 @@ static void ob_unin_scan_extra_pci_roots(void)
 
     for (i = 0; i < sizeof(roots) / sizeof(roots[0]); i++) {
         arch = roots[i];
-        ob_pci_init();
+        if (ob_pci_init() < 0) {
+            printk("Warning: unable to enumerate PCI root %s\n", arch->name);
+        }
     }
 
     arch = saved_arch;

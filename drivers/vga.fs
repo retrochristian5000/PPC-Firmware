@@ -249,6 +249,8 @@ defer vbe-iow!
 : map-mmio ( -- )
   cfg-bar2 pci-bar>pci-addr if   \ ( pci-addr.lo pci-addr.mid pci-addr.hi size )
     " map-in" $call-parent
+    \ A failed map-in must not turn register writes into RAM writes.
+    dup 0= if drop -1 then
     to mmio-addr
   then
 ;

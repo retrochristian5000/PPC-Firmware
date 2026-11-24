@@ -118,34 +118,44 @@ archname()
 {
     HOSTARCH=`uname -m | sed -e s/i.86/x86/ -e s/i86pc/x86/ \
 	-e s/sun4u/sparc64/ -e s/sparc$/sparc32/ \
-	-e s/arm64/aarch64/ -e s/arm.*/arm/ -e s/sa110/arm/ \
+	-e s/^arm64e$/aarch64/ -e s/^arm64$/aarch64/ -e s/arm.*/arm/ -e s/sa110/arm/ \
 	-e s/x86_64/amd64/ \
 	-e "s/Power Macintosh/ppc/"`
 }
 
 select_prefix()
 {
-    BASEARCH=$(basearch $ARCH)
+    BASEARCH=$(basearch "$ARCH")
+    TARGET=
     # An explicitly assigned prefix is authoritative, even on native PPC.
     if [ -n "$CROSS_COMPILE" ]; then
         TARGET=$CROSS_COMPILE
-        if command -v "${TARGET}gcc" >/dev/null 2>&1; then
-            return
-        fi
-        printf 'error: OpenBIOS cross-compiler not found: %s\n' "${TARGET}gcc" >&2
-        exit 1
+        for tool in gcc ar ld nm strip ranlib; do
+            if ! command -v "${TARGET}${tool}" >/dev/null 2>&1; then
+                printf 'error: OpenBIOS cross-tool not found: %s\n' "${TARGET}${tool}" >&2
+                exit 1
+            fi
+        done
+        return
     fi
     for target_arch ; do
         TARGETS="${target_arch}-unknown-linux-gnu- ${target_arch}-linux-gnu- ${target_arch}-linux- ${target_arch}-elf- ${target_arch}-eabi-"
 
         for TARGET in $TARGETS
         do
-            if type ${TARGET}gcc > /dev/null 2>&1
-            then
+            complete=yes
+            for tool in gcc ar ld nm strip ranlib; do
+                if ! command -v "${TARGET}${tool}" >/dev/null 2>&1; then
+                    complete=no
+                    break
+                fi
+            done
+            if [ "$complete" = yes ]; then
                 return
             fi
         done
-        if [ "$BASEARCH" = "$(basearch $HOSTARCH)" ]; then
+        if [ "$ARCH" = "$HOSTARCH" ] &&
+            { [ "$unix" = yes ] || [ "$(uname -s)" != Darwin ]; }; then
             TARGET=""
             return
         fi
@@ -188,8 +198,9 @@ else
     exit 1
 fi
 
+ODIRS=""
 target_list=""
-for target in $*; do
+for target in "$@"; do
     case $target in
         unix-*|builtin-*|plain-*|mol-ppc|briq-ppc|pearpc-ppc|qemu-ppc|qemu-ppc64|xbox-x86)
         target_list="$target_list $target"
@@ -213,9 +224,10 @@ for target in $target_list; do
         echo "Cannot find $SRCDIR/config/examples/${arch}_config.xml" >&2
         exit 1
     fi
-    if ! echo $arch_list | grep -q "$arch"; then
-        arch_list="$arch_list $arch"
-    fi
+    case " $arch_list " in
+        *" $arch "*) ;;
+        *) arch_list="$arch_list $arch" ;;
+    esac
 done
 
 for ARCH in $arch_list; do
@@ -227,7 +239,6 @@ for ARCH in $arch_list; do
     pearpc="no"
     qemu="no"
     xbox="no"
-    cross="no"
 
     for target in $target_list; do
         case $target in
@@ -323,9 +334,6 @@ for ARCH in $arch_list; do
         AS_FLAGS="-Wa,-32"
         ;;
     esac
-    if [ -n "$CROSS_COMPILE" ] || [ "$ARCH" != "$HOSTARCH" ] || [ "`uname -s`" = "Darwin" ]; then
-        cross="yes"
-    fi
     crosscflags $HOSTARCH $ARCH
     OBJDIR=$BUILDDIR/obj-$ARCH
     ODIRS="$ODIRS $OBJDIR"
@@ -386,17 +394,20 @@ for ARCH in $arch_list; do
     ODIR=$OBJDIR
 
     printf "Creating target config.mak..."
-    echo "ARCH=$ARCH" > $ODIR/config.mak
-    if [ "$cross" = "yes" ]; then
-        echo "TARGET=$TARGET" >> $ODIR/config.mak
-    fi
-    echo "TOKE=$TOKE" >> $ODIR/config.mak
-    echo "CFLAGS=$CFLAGS" >> $ODIR/config.mak
-    echo "AS_FLAGS=$AS_FLAGS" >> $ODIR/config.mak
-    echo "HOSTARCH?=$HOSTARCH" >> $ODIR/config.mak
-    echo "CROSSCFLAGS=$CROSSCFLAGS" >> $ODIR/config.mak
+    # These values describe generated objects and dictionaries, not parent Make.
+    {
+        printf 'override ARCH := %s\n' "$ARCH"
+        printf 'override TARGET := %s\n' "$TARGET"
+        printf 'override TOKE := %s\n' "$TOKE"
+        printf 'override OPENBIOS_CONFIG_CFLAGS := %s\n' "$CFLAGS"
+        printf 'override OPENBIOS_CONFIG_AS_FLAGS := %s\n' "$AS_FLAGS"
+        printf 'override HOSTARCH := %s\n' "$HOSTARCH"
+        printf 'override CROSSCFLAGS := %s\n' "$CROSSCFLAGS"
+        printf 'CFLAGS := %s\n' "$CFLAGS"
+        printf 'AS_FLAGS := %s\n' "$AS_FLAGS"
+    } > "$ODIR/config.mak" || exit 1
     echo "VERSION=\"$VERSION\"" >> $ODIR/config.mak
-    echo "SRCDIR=$SRCDIR" >> $ODIR/config.mak
+    printf 'override SRCDIR := %s\n' "$SRCDIR" >> "$ODIR/config.mak" || exit 1
     echo "ok."
 
     printf "Creating target rules.mak..."
@@ -445,21 +456,25 @@ for ARCH in $arch_list; do
     cd $ODIR
     echo "</config>" >> $ODIR/config.xml
     ln -s $SRCDIR/Makefile.target $ODIR/Makefile
-    xsltproc $SRCDIR/config/xml/xinclude.xsl $SRCDIR/build.xml > $ODIR/build-full.xml
-    xsltproc $SRCDIR/config/xml/makefile.xsl $ODIR/build-full.xml > $ODIR/rules.mak
+    xsltproc $SRCDIR/config/xml/xinclude.xsl $SRCDIR/build.xml > $ODIR/build-full.xml || exit 1
+    xsltproc $SRCDIR/config/xml/makefile.xsl $ODIR/build-full.xml > $ODIR/rules.mak || exit 1
     echo "ok."
     printf "Creating config files..."
-    xsltproc $SRCDIR/config/xml/config-c.xsl $ODIR/config.xml > $ODIR/host/include/autoconf.h
-    xsltproc $SRCDIR/config/xml/config-c.xsl $ODIR/config.xml > $ODIR/target/include/autoconf.h
-    xsltproc $SRCDIR/config/xml/config-forth.xsl $ODIR/config.xml > $ODIR/forth/config.fs
+    xsltproc $SRCDIR/config/xml/config-c.xsl $ODIR/config.xml > $ODIR/host/include/autoconf.h || exit 1
+    xsltproc $SRCDIR/config/xml/config-c.xsl $ODIR/config.xml > $ODIR/target/include/autoconf.h || exit 1
+    xsltproc $SRCDIR/config/xml/config-forth.xsl $ODIR/config.xml > $ODIR/forth/config.fs || exit 1
     echo "ok."
 
     cd $BUILDDIR
 done
 
 if [ "$SRCDIR" != "$BUILDDIR" ]; then
-    ln -s $SRCDIR/Makefile $BUILDDIR
+    if [ ! -e "$BUILDDIR/Makefile" ]; then
+        ln -s "$SRCDIR/Makefile" "$BUILDDIR/Makefile" || exit 1
+    fi
 fi
 
-echo "ODIRS=$ODIRS" >> $BUILDDIR/config-host.mak
-echo "TARGETS=$arch_list" >> $BUILDDIR/config-host.mak
+{
+    printf 'override ODIRS := %s\n' "$ODIRS"
+    printf 'override TARGETS := %s\n' "$arch_list"
+} > "$BUILDDIR/config-host.mak" || exit 1

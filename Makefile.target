@@ -5,11 +5,18 @@
 
 include config.mak
 
+# Generated firmware ABI flags are independent of parent Make assignments.
+# Keep compatibility with existing config.mak files until reconfiguration.
+ifneq ($(origin OPENBIOS_CONFIG_CFLAGS),undefined)
+override CFLAGS := $(OPENBIOS_CONFIG_CFLAGS)
+override AS_FLAGS := $(OPENBIOS_CONFIG_AS_FLAGS)
+endif
+
 # QEMU invokes sub-makes with -rR, which clears the built-in suffix list.
 # Restore the suffixes used by OpenBIOS's generated compilation rules.
 .SUFFIXES: .c .S .o .d
 
-ODIR := .
+override ODIR := .
 HOSTCC ?= cc
 HOSTAR ?= ar
 HOSTRANLIB ?= ranlib
@@ -19,14 +26,14 @@ HOSTRANLIB ?= ranlib
 # warning option when the selected host compiler accepts it under -Werror.
 host-cc-option = $(shell printf 'int openbios_host_warning_probe;\n' | $(HOSTCC) -Werror $(1) -x c -fsyntax-only - >/dev/null 2>&1 && printf '%s' '$(1)')
 
-HOSTCFLAGS+= -O2 -g -DFCOMPILER -DBOOTSTRAP $(CROSSCFLAGS)
-HOSTCFLAGS+= -Wall -Wredundant-decls -Wshadow -Wpointer-arith
-HOSTCFLAGS+= -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-labels
-HOSTCFLAGS+= -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs
-HOSTCFLAGS+= -Wimplicit-fallthrough -Woverride-init
-HOSTCFLAGS+= $(call host-cc-option,-Wno-maybe-uninitialized)
-HOSTCFLAGS+= $(call host-cc-option,-Wbuiltin-declaration-mismatch)
-HOSTCFLAGS+= -W
+override HOSTCFLAGS += -O2 -g -DFCOMPILER -DBOOTSTRAP $(CROSSCFLAGS)
+override HOSTCFLAGS += -Wall -Wredundant-decls -Wshadow -Wpointer-arith
+override HOSTCFLAGS += -Wstrict-prototypes -Wmissing-declarations -Wundef -Wendif-labels
+override HOSTCFLAGS += -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnested-externs
+override HOSTCFLAGS += -Wimplicit-fallthrough -Woverride-init
+override HOSTCFLAGS += $(call host-cc-option,-Wno-maybe-uninitialized)
+override HOSTCFLAGS += $(call host-cc-option,-Wbuiltin-declaration-mismatch)
+override HOSTCFLAGS += -W
 HOSTINCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel -I$(SRCDIR)/kernel/include -iquote $(ODIR)/target/include
 
 # Cross tools are selected by switch-arch. Parent make command-line
@@ -74,7 +81,7 @@ override CFLAGS += $(OPENBIOS_TARGET_OPTIMIZATION) -fno-strict-aliasing
 # address without r2/r13, GOT, or dynamic-relocation dependencies.
 override CFLAGS += -ffreestanding -mcall-sysv-noeabi -msdata=none -G0 -fno-pic -fno-pie
 else
-CFLAGS += -Os
+override CFLAGS += -Os
 endif
 
 override CFLAGS += -g -DNATIVE_BITWIDTH_EQUALS_HOST_BITWIDTH -USWAP_ENDIANNESS
@@ -84,7 +91,7 @@ override CFLAGS += -Wstrict-aliasing -Wwrite-strings -Wmissing-prototypes -Wnest
 override CFLAGS += -Wbuiltin-declaration-mismatch -Wimplicit-fallthrough -Woverride-init -Wno-maybe-uninitialized
 override CFLAGS += -Werror
 INCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel/include -I$(ODIR)/target/include
-AS_FLAGS+= -g
+override AS_FLAGS += -g
 
 # Dependency options are compile-rule state, not global compiler policy.
 # Keep this recursively expanded so automatic variables are resolved for the

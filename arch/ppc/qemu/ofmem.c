@@ -222,25 +222,35 @@ void ofmem_arch_create_available_entry(phandle_t ph, ucell *availentry, phys_add
 /*	OF private allocations						*/
 /************************************************************************/
 
+/*
+ * The PROM ends at 2^32. Never form its exclusive end in an unsigned
+ * long: on PPC32 that wraps to zero and excludes every firmware address.
+ */
+static int
+firmware_address(unsigned long va)
+{
+    return va >= OF_CODE_START && va - OF_CODE_START < OF_CODE_SIZE;
+}
+
 /* Private functions for mapping between physical/virtual addresses */
 phys_addr_t
 va2pa(unsigned long va)
 {
-    if (va >= OF_CODE_START && va < OF_CODE_START + OF_CODE_SIZE) {
-        return (phys_addr_t)get_rom_base() - OF_CODE_START + va;
-    } else {
-        return (phys_addr_t)va;
+    if (firmware_address(va)) {
+        return (phys_addr_t)get_rom_base() + (va - OF_CODE_START);
     }
+    return (phys_addr_t)va;
 }
 
 unsigned long
 pa2va(phys_addr_t pa)
 {
-    if ((pa - get_rom_base() + OF_CODE_START >= OF_CODE_START) &&
-        (pa - get_rom_base() + OF_CODE_START < OF_CODE_START + OF_CODE_SIZE))
-        return (unsigned long)pa - get_rom_base() + OF_CODE_START;
-    else
-        return (unsigned long)pa;
+    phys_addr_t base = get_rom_base();
+
+    if (pa >= base && pa - base < OF_CODE_SIZE) {
+        return OF_CODE_START + (unsigned long)(pa - base);
+    }
+    return (unsigned long)pa;
 }
 
 void *
@@ -288,12 +298,10 @@ ea_to_phys(unsigned long ea, ucell *mode)
 {
     phys_addr_t phys;
 
-    if (ea >= OF_CODE_START && ea <= 0xffffffffUL) {
+    if (firmware_address(ea)) {
         /* ROM into RAM */
-        ea -= OF_CODE_START;
-        phys = get_rom_base() + ea;
         *mode = 0x02;
-		return phys;
+        return va2pa(ea);
     }
 
     phys = ofmem_translate(ea, mode);
@@ -660,9 +668,14 @@ setup_mmu(unsigned long ramsize)
         hash_page(OF_CODE_START + i, get_rom_base() + i, 0x02);
     }
 
-    /* Enable MMU */
-
+    /*
+     * Complete page-table and RAM-copy stores before enabling relocation.
+     * Synchronize the instruction stream and prevent compiler memory
+     * operations from moving across the real-to-translated transition.
+     */
+    asm volatile("sync" ::: "memory");
     mtmsr(mfmsr() | MSR_IR | MSR_DR);
+    asm volatile("isync" ::: "memory");
 }
 
 void

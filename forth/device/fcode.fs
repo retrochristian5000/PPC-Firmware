@@ -22,6 +22,8 @@ true value fcode-headers?  \ If true, possibly save names for FCodes.
 
 0 value fcode-stream-start \ start address of fcode stream
 0 value fcode-stream       \ current fcode stream address
+0 value fcode-bytes-read   \ logical bytes consumed (independent of spread)
+-1 value fcode-bytes-left  \ -1 until the image header supplies a length
 
 variable fcode-end         \ state variable, if true, fcode program terminates.
 defer fcode-c@             \ get byte
@@ -33,6 +35,8 @@ defer fcode-c@             \ get byte
   fcode-headers?
   fcode-stream-start
   fcode-stream
+  fcode-bytes-read
+  fcode-bytes-left
   fcode-end @
   ['] fcode-c@ behavior
 ;
@@ -40,6 +44,8 @@ defer fcode-c@             \ get byte
 : fcode-pop-state ( <state information> -- )
   to fcode-c@
   fcode-end !
+  to fcode-bytes-left
+  to fcode-bytes-read
   to fcode-stream
   to fcode-stream-start
   to fcode-headers?
@@ -75,9 +81,18 @@ defer fcode-c@             \ get byte
 \   get 8bit from FCode stream, taking spread into regard.
 
 : fcode-num8 ( -- c ) ( F: c -- )
+  \ Check the logical length before invoking even a custom byte reader.
+  fcode-bytes-left 0= abort" FCode: read beyond declared image length"
   fcode-stream
-  dup fcode-spread + to fcode-stream 
+  dup fcode-spread +
+  2dup swap u< abort" FCode: stream address overflow"
+  to fcode-stream
   fcode-c@
+  dup 100 u>= abort" FCode: byte reader returned a non-byte"
+  fcode-bytes-read 1+ to fcode-bytes-read
+  fcode-bytes-left -1 <> if
+    fcode-bytes-left 1- to fcode-bytes-left
+  then
   ;
 
 \ fcode-num8-signed ( -- c ) ( F: c -- )
@@ -163,9 +178,13 @@ defer fcode-c@             \ get byte
 \   retrieve FCode header from FCode stream
 
 : fcode-header
+  fcode-bytes-read 1 <> abort" FCode: header must follow the initial start token"
   fcode-num8
   fcode-num16
   fcode-num32
+  \ The length includes the start token, seven header bytes and body.
+  dup 9 u< abort" FCode: invalid image length"
+  dup 8 - to fcode-bytes-left
   ?fcode-verbose if
     ." Found FCode header:" cr rot
     ."   Format   : " u. cr swap

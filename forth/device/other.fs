@@ -149,7 +149,7 @@ variable obp-ticks
 
 \ Begin program with spread 0 followed by FCode-header.
 : start0 ( -- )
-  0 fcode-spread !
+  0 to fcode-spread
   offset16
   fcode-header 
   ;

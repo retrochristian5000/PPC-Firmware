@@ -73,6 +73,8 @@ defer init-fcode-table
   to fcode-c@
   dup to fcode-stream-start
   to fcode-stream
+  0 to fcode-bytes-read
+  -1 to fcode-bytes-left
   1 to fcode-spread
   false to ?fcode-offset16 
   alloc-fcode-table

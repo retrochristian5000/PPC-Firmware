@@ -27,12 +27,23 @@ HOSTCFLAGS+= $(call host-cc-option,-Wbuiltin-declaration-mismatch)
 HOSTCFLAGS+= -W
 HOSTINCLUDES := -I$(SRCDIR)/include -I$(SRCDIR)/kernel -I$(SRCDIR)/kernel/include -iquote $(ODIR)/target/include
 
+# Cross tools are selected by switch-arch. Parent make command-line
+# assignments must not replace them with the host toolchain.
+ifneq ($(strip $(TARGET)),)
+override CC     := $(TARGET)gcc
+override AR     := $(TARGET)ar
+override LD     := $(TARGET)ld
+override NM     := $(TARGET)nm
+override STRIP  := $(TARGET)strip
+override RANLIB := $(TARGET)ranlib
+else
 CC     := $(TARGET)gcc
 AR     := $(TARGET)ar
 LD     := $(TARGET)ld
 NM     := $(TARGET)nm
 STRIP  := $(TARGET)strip
 RANLIB := $(TARGET)ranlib
+endif
 
 # PPC OpenBIOS has historically been sensitive to optimizer and compiler
 # changes. Keep optimization policy local to the firmware build instead of

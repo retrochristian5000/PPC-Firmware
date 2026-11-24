@@ -126,12 +126,17 @@ archname()
 select_prefix()
 {
     BASEARCH=$(basearch $ARCH)
+    # An explicitly assigned prefix is authoritative, even on native PPC.
+    if [ -n "$CROSS_COMPILE" ]; then
+        TARGET=$CROSS_COMPILE
+        if command -v "${TARGET}gcc" >/dev/null 2>&1; then
+            return
+        fi
+        printf 'error: OpenBIOS cross-compiler not found: %s\n' "${TARGET}gcc" >&2
+        exit 1
+    fi
     for target_arch ; do
         TARGETS="${target_arch}-unknown-linux-gnu- ${target_arch}-linux-gnu- ${target_arch}-linux- ${target_arch}-elf- ${target_arch}-eabi-"
-
-        if [ x"$CROSS_COMPILE" != "x" ]; then
-            TARGETS=$CROSS_COMPILE
-        fi
 
         for TARGET in $TARGETS
         do

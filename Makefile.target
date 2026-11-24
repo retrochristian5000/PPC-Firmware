@@ -150,5 +150,10 @@ build: all
 
 include rules.mak
 
+# The script is a real dependency, not an object passed to the linker.
+ifeq ($(ARCH),ppc)
+$(ODIR)/openbios-qemu.elf: $(SRCDIR)/arch/ppc/qemu/ldscript
+endif
+
 # Include automatically generated dependency files
 -include $(wildcard $(ODIR)/*.d $(ODIR)/host/kernel/*.d $(ODIR)/target/*/*.d $(ODIR)/target/*/*/*.d $(ODIR)/target/*/*/*/*.d)

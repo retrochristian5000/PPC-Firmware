@@ -37,8 +37,12 @@ SECTIONS
 
     _start = BASE_ADDR + 0x0100;
     .text.vectors ALIGN(4096): {
-        *(.text.vectors)
+        KEEP(*(.text.vectors))
     } :text
+    ASSERT(SIZEOF(.text.vectors) >= 0x104,
+           "OpenBIOS reset entry is missing")
+    ASSERT(ADDR(.text.vectors) + SIZEOF(.text.vectors) <= BASE_ADDR + 0x4000,
+           "OpenBIOS exception vectors overlap NVRAM")
 
     . = TEXT_ADDR;
     /* Normal sections */
@@ -52,15 +56,30 @@ SECTIONS
 	*(.rodata)
 	*(.rodata.*)
         *(.note.ELFBoot)
+        *(.sdata2)
+        *(.sdata2.*)
     } :rodata
+
+    /* Preserve unwind information, but never let it move the data boundary. */
+    .eh_frame ALIGN(4): {
+        *(.eh_frame)
+        *(.eh_frame.*)
+    } :rodata
+    .gcc_except_table ALIGN(4): {
+        *(.gcc_except_table)
+        *(.gcc_except_table.*)
+    } :rodata
+
     .data ALIGN(4096): {
         _data = .;
         *(.data)
         *(.data.*)
-	_edata = .;
+        *(.sdata)
+        *(.sdata.*)
+        _edata = .;
     } :data
 
-    .bss ALIGN(4096): {
+    .bss ALIGN(4096) (NOLOAD): {
         _bss = .;
 	*(.sbss)
 	*(.sbss.*)
@@ -79,7 +98,11 @@ SECTIONS
 
     . = HRESET_ADDR;
 
-    .romentry : { *(.romentry) } :reset
+    .romentry : { KEEP(*(.romentry)) } :reset
+    ASSERT(ADDR(.romentry) == HRESET_ADDR,
+           "OpenBIOS hard reset vector misplaced")
+    ASSERT(SIZEOF(.romentry) == 4,
+           "OpenBIOS hard reset vector must contain exactly one instruction")
 
     /* We discard .note sections other than .note.ELFBoot,
      * because some versions of GCC generates useless ones. */

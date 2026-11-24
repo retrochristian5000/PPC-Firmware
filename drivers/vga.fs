@@ -33,6 +33,9 @@ fcode-version3
 : depth-bits depth-bits-xt @ ;
 : line-bytes line-bytes-xt @ ;
 
+" is-install-checked" (find-xt) value is-install-checked-xt
+: is-install-checked is-install-checked-xt execute ;
+
 " fb8-fillrect" (find-xt) value fb8-fillrect-xt
 : fb8-fillrect fb8-fillrect-xt execute ;
 
@@ -373,19 +376,19 @@ headerless
 \ Installation
 \
 
-: qemu-vga-driver-install ( -- )
+: qemu-vga-driver-install ( -- flag )
   rage128-device? if
     \ The ATI card needs real ATI registers, never Bochs VBE.
     mmio-addr -1 = if map-mmio then
     mmio-addr -1 = if
-      ." Rage 128: BAR2 unavailable" cr exit
+      ." Rage 128: BAR2 unavailable" cr false exit
     then
     fb-addr -1 = if map-fb then
     fb-addr -1 = if
-      ." Rage 128: BAR0 unavailable" cr exit
+      ." Rage 128: BAR0 unavailable" cr false exit
     then
     rage128-init-mode 0= if
-      ." Rage 128: unsupported firmware video mode" cr exit
+      ." Rage 128: unsupported firmware video mode" cr false exit
     then
   else
     mmio-addr -1 = if
@@ -408,7 +411,7 @@ headerless
   \ map it here. Both paths must publish and install the framebuffer.
   fb-addr -1 = if map-fb then
   fb-addr -1 = if
-    ." VGA: framebuffer BAR0 unavailable" cr exit
+    ." VGA: framebuffer BAR0 unavailable" cr false exit
   then
 
   \ Every display exports its own mapped BAR0 address.
@@ -428,6 +431,7 @@ headerless
     \ display to Apple clients, not all installed PCI adapters.
     0 0 " AAPL,boot-display" property
   then
+  true
 ;
 
 : qemu-vga-driver-init
@@ -449,7 +453,7 @@ headerless
   then
   then
 
-  ['] qemu-vga-driver-install is-install
+  ['] qemu-vga-driver-install is-install-checked
 ;
 
 qemu-vga-driver-init

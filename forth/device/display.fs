@@ -124,6 +124,20 @@ defer fb-emit ( x -- )
   s" : restore reset-screen ; " evaluate
   ;
 
+\ Local checked variant: the install word itself returns the open flag.
+\ Preserve IEEE 1275 is-install for existing FCode clients.
+: is-install-checked ( xt -- )
+  external
+  s" open" header
+  1 ,
+  ,
+  ['] (semis) ,
+  reveal
+  s" : write dup >r bounds do i c@ fb-emit loop r> ; " evaluate
+  s" : draw-logo draw-logo ; " evaluate
+  s" : restore reset-screen ; " evaluate
+  ;
+
 : is-remove    ( xt -- )
   external
   \ Create close method for this display device.

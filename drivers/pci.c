@@ -1440,7 +1440,20 @@ static void ob_pci_add_properties(phandle_t phandle,
     /* Default path if we don't match anything */
     snprintf(path, sizeof(path), "pci%x,%x", vendor_id, device_id);
 
-    if (pci_dev) {
+    /*
+     * Apple TN2001 records ATY,Rage128Ps@10 on a PowerMac3,1.
+     * Keep the historical package name only for the actual modeled ATI
+     * adapter in Sawtooth's AGP slot, not for replacement PCI displays.
+     */
+    if (is_powermac3_1() &&
+        arch->vendor_id == PCI_VENDOR_ID_APPLE &&
+        arch->device_id == PCI_DEVICE_ID_APPLE_UNI_N_AGP &&
+        PCI_BUS(addr) == 0 && PCI_DEV(addr) == 16 && PCI_FN(addr) == 0 &&
+        vendor_id == PCI_VENDOR_ID_ATI &&
+        device_id == PCI_DEVICE_ID_ATI_RAGE128_PF) {
+        push_str("ATY,Rage128Ps");
+        fword("device-name");
+    } else if (pci_dev) {
         /**/
         if (pci_dev->name) {
             push_str(pci_dev->name);

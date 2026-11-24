@@ -681,7 +681,7 @@ static void split_trans( ucell virt )
 	translation_t *t, *t2;
 
 	for( t=ofmem->trans; t; t=t->next ) {
-		if( virt > t->virt && virt < t->virt + t->size-1 ) {
+		if( virt > t->virt && virt - t->virt < t->size ) {
 			t2 = (translation_t*)malloc( sizeof(translation_t) );
 			t2->virt = virt;
 			t2->size = t->size - (virt - t->virt);
@@ -703,12 +703,19 @@ int ofmem_map_page_range( phys_addr_t phys, ucell virt, ucell size, ucell mode )
 			" -> " FMT_plx " " FMT_ucellx " mode " FMT_ucellx "\n",
 			virt, phys, size, mode );
 
+	if (!size)
+		return 0;
+	if (size - 1 > (ucell)-1 - virt)
+		return -1;
+
 	split_trans( virt );
-	split_trans( virt + size );
+	/* A range ending at the address-space limit has no right fragment. */
+	if (virt + size != 0)
+		split_trans( virt + size );
 
 	/* detect remappings */
 	for( t=ofmem->trans; t; ) {
-		if( virt == t->virt || (virt < t->virt && virt + size > t->virt )) {
+		if( t->virt >= virt && t->virt - virt < size ) {
 			if( t->phys + virt - t->virt != phys ) {
 				OFMEM_TRACE("mapping altered virt=" FMT_ucellx ")\n", t->virt );
 			} else if( t->mode != mode ){
@@ -755,36 +762,34 @@ static int unmap_page_range( ucell virt, ucell size )
 	ofmem_t *ofmem = ofmem_arch_get_private();
 	translation_t **plink;
 
-	/* make sure there is exactly one matching translation entry */
+	if (!size)
+		return 0;
+	if (size - 1 > (ucell)-1 - virt)
+		return -1;
 
 	split_trans( virt );
-	split_trans( virt + size );
+	if (virt + size != 0)
+		split_trans( virt + size );
 
-	/* find and unlink entries in range */
 	plink = &ofmem->trans;
-
-	while (*plink && (*plink)->virt < virt+size) {
-		translation_t **plinkentry = plink;
+	while (*plink) {
 		translation_t *t = *plink;
 
-		/* move ahead */
-		plink = &t->next;
-
-		if (t->virt >= virt && t->virt + t->size <= virt+size) {
-
-			/* unlink entry */
-			*plinkentry = t->next;
-
-			OFMEM_TRACE("unmap_page_range found "
-					FMT_ucellx " -> " FMT_plx " " FMT_ucellx
-					" mode " FMT_ucellx "\n",
-					t->virt, t->phys, t->size, t->mode );
-
-			// really map these pages
-			ofmem_arch_unmap_pages(t->virt, t->size);
-
-			free((char*)t);
+		if (t->virt < virt) {
+			plink = &t->next;
+			continue;
 		}
+		if (t->virt - virt >= size)
+			break;
+
+		*plink = t->next;
+		OFMEM_TRACE("unmap_page_range found "
+				FMT_ucellx " -> " FMT_plx " " FMT_ucellx
+				" mode " FMT_ucellx "\n",
+				t->virt, t->phys, t->size, t->mode);
+		ofmem_arch_unmap_pages(t->virt, t->size);
+		free((char*)t);
+		/* plink still points into a live predecessor or the list head. */
 	}
 
 	ofmem_update_translations();
@@ -823,7 +828,8 @@ int ofmem_map( phys_addr_t phys, ucell virt, ucell size, ucell mode )
 	}
 
 	/* install translations */
-	ofmem_map_page_range(phys, virt, size, mode);
+	if (ofmem_map_page_range(phys, virt, size, mode) != 0)
+		return -1;
 
 	/* allow arch to map the pages */
 	ofmem_arch_map_pages(phys, virt, size, mode);
@@ -844,9 +850,7 @@ int ofmem_unmap( ucell virt, ucell size )
 	}
 
 	/* remove translations and unmap pages */
-	unmap_page_range(virt, size);
-
-	return 0;
+	return unmap_page_range(virt, size);
 }
 
 ucell ofmem_map_io( phys_addr_t phys, ucell size )
@@ -882,7 +886,7 @@ phys_addr_t ofmem_translate( ucell virt, ucell *mode )
 
 	for( t=ofmem->trans; t && t->virt <= virt ; t=t->next ) {
 		ucell offs;
-		if( t->virt + t->size - 1 < virt )
+		if( virt - t->virt >= t->size )
 			continue;
 		offs = virt - t->virt;
 		*mode = t->mode;

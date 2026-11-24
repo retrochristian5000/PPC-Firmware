@@ -1576,14 +1576,17 @@ static char pci_xbox_ignore_device (int bus, int devnum, int fn)
 }
 #endif
 
-static void ob_pci_configure_bar(pci_addr addr, pci_config_t *config,
+static int ob_pci_is_uninorth_root(void);
+
+static int ob_pci_configure_bar(pci_addr addr, pci_config_t *config,
                                  int reg, int config_addr,
                                  uint32_t *p_omask,
                                  unsigned long *mem_base,
                                  unsigned long *io_base)
 {
         uint32_t smask, amask, size, reloc, min_align;
-        unsigned long base;
+        uint64_t base, aligned, limit;
+        int is_io;
 
         config->assigned[reg] = 0x00000000;
         config->sizes[reg] = 0x00000000;
@@ -1591,7 +1594,7 @@ static void ob_pci_configure_bar(pci_addr addr, pci_config_t *config,
         if ((*p_omask & 0x0000000f) == 0x4) {
                 /* 64 bits memory mapping */
                 PCI_DPRINTF("Skipping 64 bit BARs for %s\n", config->path);
-                return;
+                return 0;
         }
 
         config->regions[reg] = pci_config_read32(addr, config_addr);
@@ -1601,13 +1604,14 @@ static void ob_pci_configure_bar(pci_addr addr, pci_config_t *config,
         pci_config_write32(addr, config_addr, 0xffffffff);
         smask = pci_config_read32(addr, config_addr);
         if (smask == 0x00000000 || smask == 0xffffffff)
-                return;
+                return 0;
 
-        if (smask & 0x00000001 && reg != 6) {
+        is_io = (smask & 0x00000001) && reg != 6;
+        if (is_io) {
                 /* I/O space */
                 base = *io_base;
                 min_align = 1 << 7;
-                amask = 0x00000001;
+                amask = 0x00000003;
         } else {
                 /* Memory Space */
                 base = *mem_base;
@@ -1620,12 +1624,28 @@ static void ob_pci_configure_bar(pci_addr addr, pci_config_t *config,
         *p_omask = smask & amask;
         smask &= ~amask;
         size = (~smask) + 1;
+        if (!size || (size & (size - 1))) {
+                printk("PCI: ERROR: invalid BAR size for %s register 0x%x\n",
+                       config->path, config_addr);
+                pci_config_write32(addr, config_addr, config->regions[reg]);
+                return -1;
+        }
         config->sizes[reg] = size;
-        reloc = base;
         if (size < min_align)
                 size = min_align;
-        reloc = (reloc + size -1) & ~(size - 1);
-        if (*io_base == base) {
+        aligned = (base + size - 1) & ~((uint64_t)size - 1);
+        limit = is_io ? arch->io_len :
+                (uint64_t)arch->pci_mem_base + arch->mem_len;
+        if (aligned + size > 0xffffffffULL ||
+            (ob_pci_is_uninorth_root() && aligned + size > limit)) {
+                printk("PCI: ERROR: BAR outside allocation window for %s "
+                       "register 0x%x\n", config->path, config_addr);
+                config->sizes[reg] = 0;
+                pci_config_write32(addr, config_addr, config->regions[reg]);
+                return -1;
+        }
+        reloc = (uint32_t)aligned;
+        if (is_io) {
                 PCI_DPRINTF("changing io_base from 0x%lx to 0x%x\n",
                             *io_base, reloc + size);
                 *io_base = reloc + size;
@@ -1639,6 +1659,7 @@ static void ob_pci_configure_bar(pci_addr addr, pci_config_t *config,
                     config->path, reloc, *p_omask, *io_base, *mem_base, size);
         pci_config_write32(addr, config_addr, reloc | *p_omask);
         config->assigned[reg] = reloc | *p_omask;
+        return 0;
 }
 
 static void ob_pci_configure_irq(pci_addr addr, pci_config_t *config)
@@ -1656,7 +1677,7 @@ static void ob_pci_configure_irq(pci_addr addr, pci_config_t *config)
                 config->irq_line = -1;
 }
 
-static void
+static int
 ob_pci_configure(pci_addr addr, pci_config_t *config, int num_regs, int rom_bar,
                  unsigned long *mem_base, unsigned long *io_base)
 
@@ -1667,14 +1688,17 @@ ob_pci_configure(pci_addr addr, pci_config_t *config, int num_regs, int rom_bar,
         pci_addr config_addr;
 
         ob_pci_configure_irq(addr, config);
+        cmd = pci_config_read16(addr, PCI_COMMAND);
+        pci_config_write16(addr, PCI_COMMAND,
+                           cmd & ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY));
 
         omask = 0x00000000;
         for (reg = 0; reg < num_regs; ++reg) {
                 config_addr = PCI_BASE_ADDR_0 + reg * 4;
 
-                ob_pci_configure_bar(addr, config, reg, config_addr,
-                                     &omask, mem_base,
-                                     io_base);
+                if (ob_pci_configure_bar(addr, config, reg, config_addr,
+                                         &omask, mem_base, io_base) < 0)
+                    goto failed;
 
                 /* Ignore 64-bit BAR MSBs (always map in 32-bit space) */
                 pci_decode_pci_addr(config->assigned[reg],
@@ -1687,12 +1711,20 @@ ob_pci_configure(pci_addr addr, pci_config_t *config, int num_regs, int rom_bar,
 
         if (rom_bar) {
                 config_addr = rom_bar;
-                ob_pci_configure_bar(addr, config, reg, config_addr,
-                                     &omask, mem_base, io_base);
+                omask = 0;
+                if (ob_pci_configure_bar(addr, config, 6, config_addr,
+                                         &omask, mem_base, io_base) < 0)
+                    goto failed;
         }
-        cmd = pci_config_read16(addr, PCI_COMMAND);
         cmd |= PCI_COMMAND_IO | PCI_COMMAND_MEMORY;
         pci_config_write16(addr, PCI_COMMAND, cmd);
+        return 0;
+
+failed:
+        /* Leave decoding disabled and do not advertise inaccessible BARs. */
+        memset(config->assigned, 0, sizeof(config->assigned));
+        memset(config->sizes, 0, sizeof(config->sizes));
+        return -1;
 }
 
 static phandle_t ob_configure_pci_device(const char* parent_path,
@@ -1824,9 +1856,9 @@ static void ob_configure_pci_bridge(pci_addr addr,
     }
 
     /* Align mem_base up to nearest MB, io_base up to nearest 4K */
-    old_mem_base = (*mem_base + 0xfffff - 1) & ~(0xfffff - 1);
+    old_mem_base = (*mem_base + 0xfffffUL) & ~0xfffffUL;
     *mem_base = old_mem_base;
-    old_io_base = (*io_base + 0xfff - 1) & ~(0xfff - 1);
+    old_io_base = (*io_base + 0xfffUL) & ~0xfffUL;
     *io_base = old_io_base;
 
     /* Set the base limit registers */
@@ -1883,8 +1915,8 @@ static void ob_configure_pci_bridge(pci_addr addr,
             config->subordinate_bus);
 
     /* Align mem_base up to nearest MB, io_base up to nearest 4K */
-    *mem_base = (*mem_base + 0xfffff - 1) & ~(0xfffff - 1);
-    *io_base = (*io_base + 0xfff - 1) & ~(0xfff - 1);
+    *mem_base = (*mem_base + 0xfffffUL) & ~0xfffffUL;
+    *io_base = (*io_base + 0xfffUL) & ~0xfffUL;
 
     /* Set the limit registers */
     pci_config_write16(addr, PCI_MEMORY_LIMIT, (((*mem_base - 1) >> 16) & ~(0xf)));
@@ -2063,8 +2095,13 @@ static phandle_t ob_configure_pci_device(const char* parent_path,
     }
 
     if (!(is_host_bridge && ob_pci_is_uninorth_root())) {
-        ob_pci_configure(addr, &config, num_bars, rom_bar,
-                         mem_base, io_base);
+        if (ob_pci_configure(addr, &config, num_bars, rom_bar,
+                             mem_base, io_base) < 0) {
+            printk("PCI: ERROR: device configuration failed for %s\n",
+                   config.path);
+            fword("finish-device");
+            return 0;
+        }
     }
 
     ob_pci_add_properties(phandle, addr, pci_dev, &config, num_bars);

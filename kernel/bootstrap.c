@@ -89,7 +89,8 @@ static const char *wordnames[] = {
 	"here", "here!", "dobranch", "do?branch", "unaligned-w@",
 	"unaligned-w!", "unaligned-l@", "unaligned-l!", "ioc@", "iow@",
 	"iol@", "ioc!", "iow!", "iol!", "i", "j", "call", "sys-debug",
-	"$include", "$encode-file", "(debug", "(debug-off)"
+	"$include", "$encode-file", "(debug", "(debug-off)",
+	"dictionary-space"
 };
 
 /*
@@ -1301,6 +1302,7 @@ int main(int argc, char *argv[])
                         printk("Compiling dictionary %d/%d\n", cnt+1, 2);
                 }
 		dict=bootstrapdict[cnt];
+		dictlimit = DICTIONARY_SIZE;
 		if(!basedict) {
 			new_dictionary(argv[optind]);
 		} else {

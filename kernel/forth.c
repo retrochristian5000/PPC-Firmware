@@ -1690,6 +1690,18 @@ static void herewrite(void)
 }
 
 
+/* Remaining dictionary capacity, or -1 if no bound was installed. */
+static void dictionary_space(void)
+{
+    if (dictlimit <= 0) {
+        PUSH(-1);
+    } else if (dicthead < 0 || dicthead > dictlimit) {
+        PUSH(0);
+    } else {
+        PUSH(dictlimit - dicthead);
+    }
+}
+
 /*
  *   emit       ( char --  )
  */
@@ -1963,4 +1975,5 @@ static forth_word * const words[] = {
     do_encode_file,         /* $encode-file */
     do_debug_xt,            /* (debug  */
     do_debug_off,           /* (debug-off) */
+    dictionary_space,       /* dictionary-space */
 };

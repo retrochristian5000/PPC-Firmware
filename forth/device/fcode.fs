@@ -305,8 +305,39 @@ defer fcode-c@             \ get byte
 \ b(buffer:) ( size -- ) ( E:  -- a-addr )  
 \   Defines type of new FCode function as buffer:.
 
+: fcode-buffer-size ( size -- aligned-size )
+  dup 0< abort" FCode: negative buffer size"
+  dup aligned
+  2dup swap u< abort" FCode: buffer alignment overflow"
+  nip
+  dup 0< abort" FCode: buffer size exceeds signed cell range"
+  dictionary-space
+  dup 0< abort" FCode: dictionary capacity unavailable"
+  #instance @ if
+    3 cells
+  else
+    1 cells
+  then
+  2dup u< abort" FCode: no room for buffer descriptor"
+  -
+  over u< abort" FCode: buffer exceeds dictionary capacity"
+  #instance @ if
+    active-package 0= abort" FCode: instance buffer without active package"
+    active-package @
+    dup 0< abort" FCode: invalid instance size"
+    over + 0< abort" FCode: instance buffer size overflow"
+  then
+  ;
+
 : b(buffer:)
-  4 , allot
+  fcode-buffer-size
+  instance? if
+    dup c , instance,
+  else
+    4 ,
+  then
+  \ Reserve the complete payload before initializing it.
+  here over allot swap 0 fill
   reveal
   ;
 

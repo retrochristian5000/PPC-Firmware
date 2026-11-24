@@ -327,8 +327,12 @@ void
 entry(void)
 {
     uint32_t temp = 0;
+    uint16_t reported_id = 0xffff;
+    uint64_t reported_ram;
+    int config_ok = 0;
     char buf[5];
 
+    machine_id = ARCH_HEATHROW;
     arch = &known_arch[ARCH_HEATHROW];
 
     fw_cfg_init();
@@ -337,9 +341,14 @@ entry(void)
     buf[4] = '\0';
     if (strncmp(buf, "QEMU", 4) == 0) {
         temp = fw_cfg_read_i32(FW_CFG_ID);
-        if (temp == 1) {
-            machine_id = fw_cfg_read_i16(FW_CFG_MACHINE_ID);
-            arch = &known_arch[machine_id];
+        /* Bit 0 denotes the byte-stream interface; DMA is optional. */
+        if (temp & 1) {
+            reported_id = fw_cfg_read_i16(FW_CFG_MACHINE_ID);
+            if (reported_id < sizeof(known_arch) / sizeof(known_arch[0])) {
+                machine_id = reported_id;
+                arch = &known_arch[machine_id];
+                config_ok = 1;
+            }
         }
     }
 
@@ -353,11 +362,25 @@ entry(void)
     }
 #endif
 
-    if (temp != 1) {
-        printk("Incompatible configuration device version, freezing\n");
+    if (!config_ok) {
+        printk("fw_cfg: ERROR: incompatible signature, version or machine ID "
+               "(version 0x%x, machine 0x%x)\n", temp, reported_id);
         for (;;) {
         }
     }
+
+    /* The reset assembly has already used the low 32 bits to place RAM. */
+    reported_ram = fw_cfg_read_i64(FW_CFG_RAM_SIZE);
+    if (reported_ram != ofmem_arch_get_private()->ramsize) {
+        printk("fw_cfg: ERROR: RAM size differs from early startup "
+               "(reported 0x%llx, startup 0x%llx)\n",
+               (unsigned long long)reported_ram,
+               (unsigned long long)ofmem_arch_get_private()->ramsize);
+        for (;;) {
+        }
+    }
+    printk("fw_cfg: ret: OK, machine %u, RAM 0x%llx\n",
+           (unsigned int)machine_id, (unsigned long long)reported_ram);
 
     ofmem_init();
     initialize_forth();
@@ -980,15 +1003,15 @@ static void
 dma_alloc(void)
 {
     ucell size = POP();
-    ucell addr;
+    void *addr;
     int ret;
 
-    ret = ofmem_posix_memalign((void *)&addr, size, PAGE_SIZE);
+    ret = ofmem_posix_memalign(&addr, PAGE_SIZE, size);
 
     if (ret) {
         PUSH(0);
     } else {
-        PUSH(addr);
+        PUSH(pointer2cell(addr));
     }
 }
 
@@ -1079,7 +1102,7 @@ arch_of_init(void)
     temp = fw_cfg_read_i32(FW_CFG_ID);
     printk(" version %d machine id %d\n", temp, machine_id);
 
-    temp = fw_cfg_read_i32(FW_CFG_NB_CPUS);
+    temp = fw_cfg_read_i16(FW_CFG_NB_CPUS);
 
     printk("CPUs: %x\n", temp);
 

@@ -28,16 +28,6 @@
 //#define OFMEM_FILL_RANGE
 
 
-static inline size_t align_size(size_t x, size_t a)
-{
-    return (x + a - 1) & ~(a - 1);
-}
-
-static inline phys_addr_t align_ptr(uintptr_t x, size_t a)
-{
-    return (x + a - 1) & ~(a - 1);
-}
-
 static ucell get_ram_size( void )
 {
 	ofmem_t *ofmem = ofmem_arch_get_private();
@@ -91,60 +81,69 @@ print_trans( void )
 
 int ofmem_posix_memalign( void **memptr, size_t alignment, size_t size )
 {
-	ofmem_t *ofmem = ofmem_arch_get_private();
-	alloc_desc_t *d, **pp;
-	void *ret;
-	ucell top;
-	phys_addr_t pa;
+    ofmem_t *ofmem = ofmem_arch_get_private();
+    alloc_desc_t *d, **pp;
+    uintptr_t cursor, ret, top;
+    phys_addr_t pa, mask;
+    size_t payload;
 
-	if( !size )
-		return ENOMEM;
+    if (!memptr || !alignment || (alignment & (alignment - 1)))
+        return EINVAL;
+    if (!size)
+        return ENOMEM;
 
-	if( !ofmem->next_malloc )
-		ofmem->next_malloc = (char*)ofmem_arch_get_malloc_base();
+    /* Keep the allocation header naturally aligned as well as the data. */
+    alignment = MAX(alignment, sizeof(void *));
+    if (size > (size_t)-1 - (sizeof(void *) - 1))
+        return ENOMEM;
+    payload = (size + sizeof(void *) - 1) & ~(sizeof(void *) - 1);
+    if (payload > (size_t)-1 - sizeof(*d) ||
+        payload > (ucell)-1 - sizeof(*d))
+        return ENOMEM;
+    size = payload + sizeof(*d);
+    mask = (phys_addr_t)alignment - 1;
 
-	size = align_size(size + sizeof(alloc_desc_t), alignment);
+    /* Reuse a block only at its original payload address. */
+    for (pp = &ofmem->mfree; *pp; pp = &(*pp)->next) {
+        d = *pp;
+        ret = (uintptr_t)(d + 1);
+        if (d->size >= size && !(va2pa(ret) & mask) &&
+            !(ret & (sizeof(void *) - 1))) {
+            *pp = d->next;
+            d->next = NULL;
+            memset((void *)ret, 0, d->size - sizeof(*d));
+            *memptr = (void *)ret;
+            return 0;
+        }
+    }
 
-	/* look in the freelist */
-	for( pp=&ofmem->mfree; *pp && (**pp).size < size; pp = &(**pp).next ) {
-	}
+    if (!ofmem->next_malloc)
+        ofmem->next_malloc = ofmem_arch_get_malloc_base();
 
-	/* waste at most 4K by taking an entry from the freelist */
-	if( *pp && (**pp).size > size + 0x1000 ) {
-		/* Alignment should be on physical not virtual address */
-		pa = va2pa((uintptr_t)*pp + sizeof(alloc_desc_t));
-		pa = align_ptr(pa, alignment);
-		ret = (void *)pa2va(pa);
+    cursor = (uintptr_t)ofmem->next_malloc;
+    top = ofmem_arch_get_heap_top();
+    if (cursor > top || sizeof(*d) > top - cursor)
+        return ENOMEM;
 
-		memset( ret, 0, (**pp).size - sizeof(alloc_desc_t) );
-		*pp = (**pp).next;
+    /* Align in physical space without truncating a wider physical address. */
+    pa = va2pa(cursor + sizeof(*d));
+    if (pa > (phys_addr_t)-1 - mask)
+        return ENOMEM;
+    pa = (pa + mask) & ~mask;
+    ret = pa2va(pa);
+    if (ret < cursor + sizeof(*d) || ret > top || payload > top - ret ||
+        (ret & (sizeof(void *) - 1)) || va2pa(ret) != pa) {
+        printk("OFMEM: allocation exceeds heap or has invalid alignment\n");
+        return ENOMEM;
+    }
 
-		*memptr = ret;
-		return 0;
-	}
-
-	top = ofmem_arch_get_heap_top();
-
-	/* Alignment should be on physical not virtual address */
-	pa = va2pa((uintptr_t)ofmem->next_malloc + sizeof(alloc_desc_t));
-	pa = align_ptr(pa, alignment);
-	ret = (void *)pa2va(pa);
-
-	if( pointer2cell(ret) + size > top ) {
-		printk("out of malloc memory (%x)!\n", size );
-		return ENOMEM;
-	}
-
-	d = (alloc_desc_t*)((uintptr_t)ret - sizeof(alloc_desc_t));
-	ofmem->next_malloc += size;
-
-	d->next = NULL;
-	d->size = size;
-
-	memset( ret, 0, size - sizeof(alloc_desc_t) );
-
-	*memptr = ret;
-	return 0;
+    d = (alloc_desc_t *)(ret - sizeof(*d));
+    d->next = NULL;
+    d->size = size;
+    ofmem->next_malloc = (char *)(ret + payload);
+    memset((void *)ret, 0, payload);
+    *memptr = (void *)ret;
+    return 0;
 }
 
 void* ofmem_malloc( size_t size )

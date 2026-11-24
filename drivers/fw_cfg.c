@@ -87,7 +87,8 @@ fw_cfg_find_file(const char *filename, uint16_t *select, uint32_t *size)
     for (i = 0; i < count; i++) {
         fw_cfg_read_bytes((char *)&f, sizeof(f));
 
-        if (!strcmp(f.name, filename)) {
+        if (f.name[sizeof(f.name) - 1] == '\0' &&
+            !strcmp(f.name, filename)) {
             *select = __be16_to_cpu(f.select);
             *size = __be32_to_cpu(f.size);
 
@@ -107,6 +108,8 @@ fw_cfg_read_file(const char *filename, uint32_t *size)
 
     if (fw_cfg_find_file(filename, &cmd, &nbytes)) {
         buf = malloc(nbytes);
+        if (!buf)
+            return NULL;
         fw_cfg_read(cmd, buf, nbytes);
         *size = nbytes;
         return buf;

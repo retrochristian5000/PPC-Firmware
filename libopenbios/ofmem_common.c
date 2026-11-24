@@ -441,7 +441,12 @@ static ucell find_area( ucell align, ucell size, range_t *r,
 	phys_addr_t base = min;
 	range_t *r2;
 	ucell old_align = align;
+	phys_addr_t mask;
 	int i;
+
+	/* max is exclusive; reject impossible requests before subtracting. */
+	if (!size || max <= min || size > max - min)
+		return -1;
 
 	if( (align < PAGE_SIZE) ) {
 		
@@ -463,28 +468,35 @@ static ucell find_area( ucell align, ucell size, range_t *r,
 		OFMEM_TRACE("warning: bad alignment " FMT_ucellx " rounded up to " FMT_ucellx "\n", old_align, align);
 	}
 
+	if (!align)
+		return -1; /* power-of-two rounding overflowed */
+	mask = (phys_addr_t)align - 1;
 	base = reverse ? max - size : min;
 	r2 = reverse ? NULL : r;
 
 	for( ;; ) {
 		if( !reverse ) {
-			base = (base + align - 1) & ~(align-1);
-			if( base < min )
-				base = min;
-			if( base + size - 1 >= max -1 )
+			if (base > (phys_addr_t)-1 - mask)
 				break;
+			base = (base + mask) & ~mask;
 		} else {
-			if( base > max - size )
+			if (base > max - size)
 				base = max - size;
-			base -= base & (align-1);
+			base &= ~mask;
 		}
-		if( is_free( base, size, r ) )
+		if (base < min || base > max - size)
+			break;
+		if (is_free(base, size, r))
 			return base;
 
 		if( !reverse ) {
 			if( !r2 )
 				break;
+			if (r2->size > (phys_addr_t)-1 - r2->start)
+				break;
 			base = r2->start + r2->size;
+			if (base < min)
+				base = min;
 			r2 = r2->next;
 		} else {
 			range_t *rp;
@@ -494,6 +506,8 @@ static ucell find_area( ucell align, ucell size, range_t *r,
 
 			r2 = rp;
 			if( !r2 )
+				break;
+			if (r2->start < min || size > r2->start - min)
 				break;
 			base = r2->start - size;
 		}
@@ -633,9 +647,12 @@ ucell ofmem_claim( ucell addr, ucell size, ucell align )
 
 	OFMEM_TRACE("ofmem_claim " FMT_ucellx " " FMT_ucellx " " FMT_ucellx "\n", addr, size, align );
 	virt = phys = 0;
+	if (!size)
+		return -1;
 	if( !align ) {
 		if( is_free(addr, size, ofmem->virt_range) &&
-		    is_free(addr, size, ofmem->phys_range) && addr < get_ram_size() ) {
+		    is_free(addr, size, ofmem->phys_range) && addr < get_ram_size() &&
+		    size <= get_ram_size() - addr ) {
 			ofmem_claim_phys_( addr, size, 0, 0, 0, 0 );
 			ofmem_claim_virt_( addr, size, 0, 0, 0, 0 );
 			virt = phys = addr;
@@ -647,11 +664,15 @@ ucell ofmem_claim( ucell addr, ucell size, ucell align )
 		if( align < PAGE_SIZE )
 			align = PAGE_SIZE;
 		phys = ofmem_claim_phys_( -1, size, align, 0, get_ram_size(), 1 /* reverse */ );
+		if (phys == (phys_addr_t)-1)
+			return -1;
 		virt = ofmem_claim_virt_( phys, size, 0, 0, 0, 0 );
-		if( phys == -1 || virt == -1 ) {
+		if (virt == (ucell)-1) {
+			ofmem_release_phys(phys, size);
 			OFMEM_TRACE("ofmem_claim failed\n");
 			return -1;
 		}
+		offs = 0; /* addr is ignored for automatically aligned claims */
 		/* printk("...phys = %08lX, virt = %08lX, size = %08lX\n", phys, virt, size ); */
 	}
 
@@ -857,24 +878,31 @@ ucell ofmem_map_io( phys_addr_t phys, ucell size )
 	/* Claim virtual memory from the I/O range and map the page-aligned
 	   physical address phys to it, returning the newly allocated
 	   virtual address */
-	ucell virt, mode;
-	phys_addr_t off;
-	int npages;
+	ucell virt, mode, off, span;
+	phys_addr_t requested_phys = phys;
 
 	off = phys & (PAGE_SIZE - 1);
-	npages = (off + size - 1) / PAGE_SIZE + 1;
-	phys &= ~(PAGE_SIZE - 1);
+	if (!size || size - 1 > (phys_addr_t)-1 - phys ||
+	    size > (ucell)-1 - off ||
+	    size + off > (ucell)-1 - (PAGE_SIZE - 1))
+		return -1;
 
-	virt = ofmem_claim_io(-1, npages * PAGE_SIZE, PAGE_SIZE);
+	span = (size + off + PAGE_SIZE - 1) & ~(ucell)(PAGE_SIZE - 1);
+	phys &= ~(phys_addr_t)(PAGE_SIZE - 1);
+
+	virt = ofmem_claim_io(-1, span, PAGE_SIZE);
 	if (virt == (ucell)-1)
 		return -1;
 
-	mode = ofmem_arch_io_translation_mode(off);
+	mode = ofmem_arch_io_translation_mode(requested_phys);
 
-	ofmem_map_page_range(phys, virt, npages * PAGE_SIZE, mode);
-	ofmem_arch_map_pages(phys, virt, npages * PAGE_SIZE, mode);
+	if (ofmem_map_page_range(phys, virt, span, mode) != 0) {
+		ofmem_release_io(virt, span);
+		return -1;
+	}
+	ofmem_arch_map_pages(phys, virt, span, mode);
 
-	return (virt + off);
+	return virt + off;
 }
 
 /* virtual -> physical. */
